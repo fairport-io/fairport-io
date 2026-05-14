@@ -50,6 +50,12 @@ define SETUP_FUNCTIONS
 	require_docker() { \
 		command -v docker 2>&1 > /dev/null || crit "Docker is required to continue"; \
 	}; \
+	setup_buildx() { \
+		if ! docker buildx inspect | grep -q "Driver:.*docker-container"; then \
+			info "Setting up docker-container driver for buildx to support cache exports"; \
+			docker buildx create --use --driver docker-container > /dev/null 2>&1 || true; \
+		fi; \
+	}; \
 	skip_root_dir() { \
 		[ "$(WORKDIR)" = "$(REPO_ROOT)" ] && info "Nothing to build here" && exit 0; \
 	}; \
@@ -106,6 +112,7 @@ endef
 
 define SETUP_ENV
 	require_docker; \
+	setup_buildx; \
 	skip_root_dir; \
 	setup_dockerignore; \
 	run_subtargets; \
