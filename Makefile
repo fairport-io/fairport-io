@@ -60,7 +60,7 @@ define SETUP_FUNCTIONS
 		[ "$(WORKDIR)" = "$(REPO_ROOT)" ] && info "Nothing to build here" && exit 0; \
 	}; \
 	setup_dockerignore() { \
-		printf "Makefile\n$(DOCKERFILE)\ntests/\n" > .dockerignore; \
+		[ -f .dockerignore ] || printf "Makefile\n$(DOCKERFILE)\ntests/\nnode_modules\n.git\n" > .dockerignore; \
 	}; \
 	run_subtargets() { \
 		SUB_TARGETS=$$(find . -mindepth 2 -name "Makefile" -exec dirname {} \;); \
