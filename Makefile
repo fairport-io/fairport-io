@@ -106,6 +106,8 @@ define SETUP_FUNCTIONS
 		[ "$(CI_API_V4_URL)" ] && add_arg "--secret id=CI_API_V4_URL,env=CI_API_V4_URL"; \
 		[ "$(CI_PROJECT_ID)" ] && add_arg "--secret id=CI_PROJECT_ID,env=CI_PROJECT_ID"; \
 		[ "$(CI_JOB_TOKEN)" ]  && add_arg "--secret id=CI_JOB_TOKEN,env=CI_JOB_TOKEN"; \
+		add_arg "--progress=plain"; \
+		add_arg "--build-arg CACHEBUST=$(date +%s)"; \
 		true; \
 	}
 endef
