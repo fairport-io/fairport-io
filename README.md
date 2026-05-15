@@ -2,15 +2,15 @@
 
 A repository of Fairport applications.
 
-## [Training]((TRAINING.md)
+## Training: [TRAINING.md](TRAINING.md)
 
 All users must complete the steps in [TRAINING.md](TRAINING.md) to contribute to this repository.
 
-## [Contributing](CONTRIBUTING.md)
+## Contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 Guidelines for contributing to this repository.
 
-## [Agents](AGENTS.md)
+## Agents: [AGENTS.md](AGENTS.md)
 
 This repo is designed to work with AI agents.  Users should add `<SPEC_NAME>.md` files inside a `.agents` directory for the app they wish to modify or in the root of the repository.
 
