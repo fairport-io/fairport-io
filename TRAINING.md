@@ -5,7 +5,7 @@
 
 ## Steps
 
-If you're alerady acquainted with git and pull-requests, you can skip to the [Speed Run (Advanced)](#4-speed-run-advanced) section.
+If you're alerady acquainted with git and pull-requests, you can skip to the [Speed Run (Advanced)](speed-run-advanced) section.
 
 If you're just getting started with git follow this directions:
 
@@ -57,10 +57,10 @@ Instead of opening a text editor, we can use the terminal to safely append your 
 
 ```bash
 # Safely append your name to the bottom of the list
-echo "- @${GH_USER}" >> .GRADUATES.md
+echo "- ${GH_USER}" >> .GRADUATES.md
 
 # Stage and commit the change in one step
-git commit -am "Training: add @${GH_USER} to .GRADUATES.md"
+git commit -am "Training: add ${GH_USER} to .GRADUATES.md"
 ```
 
 ---
@@ -84,7 +84,7 @@ open https://github.com/fairport-io/fairport-io/pull/new/${GH_USER}/training
 
 ---
 
-## 4. Speed Run (Advanced)
+## Speed Run (Advanced)
 
 Already know what you're doing? Just fill in your username on the first line and copy/paste this entire block into your terminal:
 
@@ -93,8 +93,8 @@ export GH_USER="" # Replace with your username inside the quotes
 git clone git@github.com:fairport-io/fairport-io.git
 cd fairport-io
 git checkout -b ${GH_USER}/training
-echo "- @${GH_USER}" >> .GRADUATES.md
-git commit -am "Training: add @${GH_USER} to .GRADUATES.md"
+echo "- ${GH_USER}" >> .GRADUATES.md
+git commit -am "Training: add ${GH_USER} to .GRADUATES.md"
 git push -u origin ${GH_USER}/training
 open https://github.com/fairport-io/fairport-io/pull/new/${GH_USER}/training
 ```
