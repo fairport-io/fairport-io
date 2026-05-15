@@ -67,3 +67,13 @@ Follow standard [Semantic Versioning](https://semver.org/) rules when bumping yo
 | **Major** | `1.0.0` -> `2.0.0` | Breaking changes (not backward compatible). |
 | **Minor** | `0.1.0` -> `0.2.0` | New features added (backward compatible). |
 | **Patch** | `0.0.1` -> `0.0.2` | Bug fixes (backward compatible). |
+
+## Creating Apps
+
+To quickly start on a new app, you can clone the example application and start working right away!
+
+```shell
+cp -r apps/example apps/<new-app-name>
+rm apps/<new-app-name>/Makefile
+ln -s Makefile apps/<new-app-name>/Makefile
+```
