@@ -1,0 +1,33 @@
+---
+name: On Commit
+on: [push]
+
+jobs:
+
+  check-for-secrets:
+    runs-on: ubuntu-22.04
+    container:
+      image: zricethezav/gitleaks:latest
+      options: --user root
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+    - name: Run Gitleaks
+      shell: bash {0}
+      run: |
+        git config --global --add safe.directory $PWD
+        gitleaks detect --redact --verbose --log-opts="--since=7days --all --full-history"
+        if [ $? -ne 0 ]; then
+          echo "Gitleaks found potential secrets in the codebase."
+          echo 'You may need to remove secrets using this method:'
+          echo '  echo "somethingsupersecret" > bad_string.txt'
+          echo '  bfg --replace-text bad_string.txt'
+          echo '  rm bad_string.txt'
+          echo '  git reflog expire --expire=now --all && git gc --prune=now --aggressive'
+          echo '  git push --force'
+          exit 1
+        fi
+
+

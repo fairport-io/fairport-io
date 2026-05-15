@@ -1,0 +1,26 @@
+---
+name: On Pull Request
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  check-training-md:
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check if PR author is in GRADUATES.md
+      run: |
+        AUTHOR="${{ github.event.pull_request.user.login }}"
+        if ! grep -qi "^- $AUTHOR$" .GRADUATES.md; then
+            echo "[CRITICAL] PR author ($AUTHOR) not found in .GRADUATES.md"
+            echo "[CRITICAL] To fix this please review TRAINING.md"
+            echo "[CRITICAL] Exact command: echo \"- $AUTHOR\" >> .GRADUATES.md"
+            exit 1
+        else
+            echo "PR author ($AUTHOR) found in .GRADUATES.md"
+        fi
