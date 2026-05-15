@@ -1,0 +1,6 @@
+[allowlist]
+description = "Ignore Docker secrets using env vars in Makefiles"
+regexes = [
+    '''--secret id=[A-Z0-9_]+,env=[A-Z0-9_]+'''
+]
+paths = ['''(?i)(.*/)?Makefile''']
