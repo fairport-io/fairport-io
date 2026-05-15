@@ -1,0 +1,51 @@
+# Byte-compiled / optimized / DLL files
+**/__pycache__/
+**/*.py[codz]
+**/*$py.class
+
+# macOS
+**/.DS_Store
+**/Icon?
+**/.AppleDouble
+
+# Vim
+**/*.swp
+**/*.swo
+
+# JetBrains IDEs
+.idea/
+
+# Environment variables / secrets
+**/.env
+**/.env.*
+
+# Go binaries & build artifacts
+**/*.exe
+**/*.test
+**/*.out
+
+# Rust build output
+**/target/
+
+# Python build artifacts
+**/*.egg-info/
+**/dist/
+**/build/
+**/*.whl
+
+# Tarfiles
+**/*.tar
+**/*.tar.gz
+**/*.tgz
+
+# Terraform
+**/.terraform*
+**/backend.tf
+**/crash.log
+**/override.tf
+**/override.tf.json
+**/*_override.tf
+**/*_override.tf.json
+**/shared-variables.tf
+**/*.tfstate
+**/*.tfstate.*
