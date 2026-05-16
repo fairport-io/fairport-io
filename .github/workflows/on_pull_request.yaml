@@ -32,7 +32,9 @@ jobs:
       run: |
         BASE_SHA="${{ github.event.pull_request.base.sha }}"
         HEAD_SHA="${{ github.event.pull_request.head.sha }}"
-        
+
+        echo "$BASE_SHA" | grep 000000 && echo "[CRITICAL] Invalid SHA $BASE_SHA" && exit 1 
+
         CHANGED_APPS=$(git diff --name-only $BASE_SHA $HEAD_SHA | grep -v '^$' | rev | cut -d '/' -f2- | rev | sort -u)
         
         for D in $CHANGED_APPS; do
