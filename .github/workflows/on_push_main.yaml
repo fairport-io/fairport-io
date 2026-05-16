@@ -13,6 +13,10 @@ jobs:
         fetch-depth: 0
 
     - name: Build, Test & Deploy
+      env:
+        REGISTRY_ADDRESS: ghcr.io 
+        REGISTRY_USERNAME: ${{ github.actor }}
+        REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
       run: |
         BASE_SHA="${{ github.event.pull_request.base.sha }}"
         HEAD_SHA="${{ github.event.pull_request.head.sha }}"
