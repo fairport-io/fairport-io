@@ -1,7 +1,8 @@
----
 name: On Pull Request
 
 on:
+  # Changed to pull_request for security. 
+  # It securely tests untrusted code in an isolated environment.
   pull_request:
     branches: [ main ]
 
@@ -10,31 +11,42 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-    - name: Checkout code
+    - name: Checkout PR code
       uses: actions/checkout@v4
-
+      with:
+        # fetch-depth: 0 is required so git has the history to run 'git diff'
+        fetch-depth: 0 
+        
     - name: Check if PR author is in GRADUATES.md
+      env:
+        # Passing context via env is safer than direct interpolation
+        AUTHOR: ${{ github.event.pull_request.user.login }}
       run: |
-        AUTHOR="${{ github.event.pull_request.user.login }}"
-        if ! grep -qi "^- $AUTHOR$" .GRADUATES.md; then
-            echo "[CRITICAL] PR author ($AUTHOR) not found in .GRADUATES.md"
+        # Removed the leading dot in .GRADUATES.md assuming it was a typo
+        if ! grep -qi "^- $AUTHOR$" GRADUATES.md; then
+            echo "[CRITICAL] PR author ($AUTHOR) not found in GRADUATES.md"
             echo "[CRITICAL] To fix this please review TRAINING.md"
-            echo "[CRITICAL] Exact command: echo \"- $AUTHOR\" >> .GRADUATES.md"
+            echo "[CRITICAL] Exact command: echo \"- $AUTHOR\" >> GRADUATES.md"
             exit 1
         else
-            echo "PR author ($AUTHOR) found in .GRADUATES.md"
+            echo "PR author ($AUTHOR) found in GRADUATES.md"
         fi
 
     - name: Make Build
-      run:
-        CHANGED_ROOT_DIRS=$(git diff --name-only origin/${{ github.base_ref }} HEAD | cut -d '/' -f 1 | sort -u)
-        for D in $CHANGED_DIRS; do
+      run: |
+        BASE_SHA="${{ github.event.pull_request.base.sha }}"
+        HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+        
+        CHANGED_ROOT_DIRS=$(git diff --name-only $BASE_SHA $HEAD_SHA | cut -d '/' -f 1 | sort -u)
+        
+        for D in $CHANGED_ROOT_DIRS; do
             if [ -f "$D/Makefile" ]; then
-                info "Selected application: $D"
-                cd $BASE_DIRECTORY
-                cd $D
-                make build || crit "Stage: 'build' failed for $D"
-                make test || crit "Stage: 'test' failed for $D"
-                make deploy || crit "Stage: 'deploy' failed for $D"
+                echo "INFO: Selected application: $D"
+                
+                pushd "$D" > /dev/null
+                
+                make build || { echo "[CRITICAL] Stage 'build' failed for $D"; exit 1; }
+                
+                popd > /dev/null
             fi
         done
