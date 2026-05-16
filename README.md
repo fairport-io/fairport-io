@@ -1,10 +1,11 @@
 # fairport-io
 
-A repository of Fairport applications.
+## Directory
 
-## Training
-
-All users must complete the steps in [TRAINING.md](TRAINING.md) to contribute to this repository.
+- Our website: [https://fairport.io/](https://fairport.io/)
+- Use our stuff: [https://github.com/fairport-io/get-fairport-io](https://github.com/fairport-io/get-fairport-io)
+- Applications we build: [Applications](apps/)
+- Helm charts we publish: [Helm Charts](charts/)
 
 ## Contributing
 
