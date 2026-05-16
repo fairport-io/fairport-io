@@ -1,6 +1,11 @@
 # fairport-io
 
-A repository of Fairport applications.
+## Directory
+
+- [Applicationslications](apps/)
+- [Helm Charts](charts/)
+- [fairport.io](https://fairport.io/)
+- [get.fairport.io](https://get.fairport.io/)
 
 ## Training
 
