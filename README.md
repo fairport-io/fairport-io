@@ -2,7 +2,7 @@
 
 ## Directory
 
-- [Applicationslications](apps/)
+- [Applications](apps/)
 - [Helm Charts](charts/)
 - [fairport.io](https://fairport.io/)
 - [get.fairport.io](https://get.fairport.io/)
