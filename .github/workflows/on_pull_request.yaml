@@ -6,7 +6,7 @@ on:
     branches: [ main ]
 
 jobs:
-  check-training-md:
+  on-pull-request:
     runs-on: ubuntu-latest
     steps:
 
@@ -24,3 +24,17 @@ jobs:
         else
             echo "PR author ($AUTHOR) found in .GRADUATES.md"
         fi
+
+    - name: Make Build
+      run:
+        CHANGED_ROOT_DIRS=$(git diff --name-only origin/${{ github.base_ref }} HEAD | cut -d '/' -f 1 | sort -u)
+        for D in $CHANGED_DIRS; do
+            if [ -f "$D/Makefile" ]; then
+                info "Selected application: $D"
+                cd $BASE_DIRECTORY
+                cd $D
+                make build || crit "Stage: 'build' failed for $D"
+                make test || crit "Stage: 'test' failed for $D"
+                make deploy || crit "Stage: 'deploy' failed for $D"
+            fi
+        done
