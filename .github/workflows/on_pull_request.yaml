@@ -38,7 +38,7 @@ jobs:
         for D in $CHANGED_APPS; do
             if [ -f "$D/Makefile" ]; then
                 [ -z "$D" ] || [ "$D" = "." ] && continue
-                echo "INFO: Selected application: $D"
+                echo "[INFO] Selected application: $D"
                 
                 pushd "$D" > /dev/null
                 
