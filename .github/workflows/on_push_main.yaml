@@ -1,0 +1,38 @@
+---
+name: On Push to Main
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-test-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Build, Test & Deploy
+      run: |
+        BASE_SHA="${{ github.event.pull_request.base.sha }}"
+        HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+
+        echo "$BASE_SHA" | grep 000000 && echo "[CRITICAL] Invalid SHA $BASE_SHA" && exit 1
+
+        CHANGED_APPS=$(git diff --name-only $BASE_SHA $HEAD_SHA | grep -v '^$' | rev | cut -d '/'
+-f2- r  ev | sort -u)
+
+        for D in $CHANGED_APPS; do
+            if [ -f "$D/Makefile" ]; then
+                [ -z "$D" ] || [ "$D" = "." ] && continue
+                echo "[INFO] Selected application: $D"
+
+                pushd "$D" > /dev/null
+
+                make build || { echo "[CRITICAL] Stage 'build' failed for $D"; exit 1; }
+                make test || { echo "[CRITICAL] Stage 'test' failed for $D"; exit 1; }
+                make deploy || { echo "[CRITICAL] Stage 'deploy' failed for $D"; exit 1; }
+
+                popd > /dev/null
+            fi
+        done
