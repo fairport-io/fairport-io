@@ -34,7 +34,7 @@ jobs:
         BASE_SHA="${{ github.event.pull_request.base.sha }}"
         HEAD_SHA="${{ github.event.pull_request.head.sha }}"
         
-        CHANGED_APPS=$(git diff --name-only $BASE_SHA $HEAD_SHA | cut -d '/' -f 1 | sort -u)
+        CHANGED_APPS=$(git diff --name-only $BASE_SHA $HEAD_SHA | grep -v '^$' | rev | cut -d '/' -f2- | rev | sort -u)
         
         for D in $CHANGED_APPS; do
             if [ -f "$D/Makefile" ]; then
