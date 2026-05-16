@@ -2,10 +2,10 @@
 
 ## Directory
 
-- [Applications](apps/)
-- [Helm Charts](charts/)
-- [fairport.io](https://fairport.io/)
-- [get.fairport.io](https://get.fairport.io/)
+- Our website: [https://fairport.io/](https://fairport.io/)
+- Use our stuff: [https://github.com/fairport-io/get-fairport-io](https://github.com/fairport-io/get-fairport-io)
+- Applications we build: [Applications](apps/)
+- Helm charts we publish: [Helm Charts](charts/)
 
 ## Contributing
 
