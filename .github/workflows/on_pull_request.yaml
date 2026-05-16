@@ -1,8 +1,7 @@
+---
 name: On Pull Request
 
 on:
-  # Changed to pull_request for security. 
-  # It securely tests untrusted code in an isolated environment.
   pull_request:
     branches: [ main ]
 
@@ -29,7 +28,7 @@ jobs:
             echo "PR author ($AUTHOR) found in .GRADUATES.md"
         fi
 
-    - name: Make Build
+    - name: Build & Test
       run: |
         BASE_SHA="${{ github.event.pull_request.base.sha }}"
         HEAD_SHA="${{ github.event.pull_request.head.sha }}"
@@ -38,12 +37,14 @@ jobs:
         
         for D in $CHANGED_APPS; do
             if [ -f "$D/Makefile" ]; then
+                [ -z "$D" ] || [ "$D" = "." ] && continue
                 echo "INFO: Selected application: $D"
                 
                 pushd "$D" > /dev/null
                 
                 make build || { echo "[CRITICAL] Stage 'build' failed for $D"; exit 1; }
-                
+                make test || { echo "[CRITICAL] Stage 'test' failed for $D"; exit 1; }
+
                 popd > /dev/null
             fi
         done
