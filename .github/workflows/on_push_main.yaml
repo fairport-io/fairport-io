@@ -17,7 +17,7 @@ jobs:
 
     - name: Build, Test & Deploy
       env:
-        REGISTRY_ADDRESS: ghcr.io/fairport.io 
+        REGISTRY_ADDRESS: ghcr.io/fairport-io 
         REGISTRY_USERNAME: ${{ github.actor }}
         REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
       run: |
