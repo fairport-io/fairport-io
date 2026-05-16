@@ -1,0 +1,7 @@
+---
+cert-manager:
+  enabled: true
+  crds:
+    enabled: true
+  startupapicheck:
+    timeout: 5m
