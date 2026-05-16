@@ -1,0 +1,11 @@
+---
+apiVersion: v2
+name: cert-manager
+version: 0 # Inherited from the VERSION file when make is run
+dependencies:
+- name: cert-manager
+  condition: cert-manager.enabled
+  version: v1.19.1
+  repository: https://charts.jetstack.io
+annotations:
+  publish-repository: oci://gcr.io/fairport-io
