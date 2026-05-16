@@ -14,22 +14,19 @@ jobs:
     - name: Checkout PR code
       uses: actions/checkout@v4
       with:
-        # fetch-depth: 0 is required so git has the history to run 'git diff'
         fetch-depth: 0 
         
-    - name: Check if PR author is in GRADUATES.md
+    - name: Check if Author Completed TRAINING.md
       env:
-        # Passing context via env is safer than direct interpolation
         AUTHOR: ${{ github.event.pull_request.user.login }}
       run: |
-        # Removed the leading dot in .GRADUATES.md assuming it was a typo
-        if ! grep -qi "^- $AUTHOR$" GRADUATES.md; then
-            echo "[CRITICAL] PR author ($AUTHOR) not found in GRADUATES.md"
+        if ! grep -qi "^- $AUTHOR$" .GRADUATES.md; then
+            echo "[CRITICAL] PR author ($AUTHOR) not found in .GRADUATES.md"
             echo "[CRITICAL] To fix this please review TRAINING.md"
-            echo "[CRITICAL] Exact command: echo \"- $AUTHOR\" >> GRADUATES.md"
+            echo "[CRITICAL] Exact command: echo \"- $AUTHOR\" >> .GRADUATES.md"
             exit 1
         else
-            echo "PR author ($AUTHOR) found in GRADUATES.md"
+            echo "PR author ($AUTHOR) found in .GRADUATES.md"
         fi
 
     - name: Make Build
@@ -37,9 +34,9 @@ jobs:
         BASE_SHA="${{ github.event.pull_request.base.sha }}"
         HEAD_SHA="${{ github.event.pull_request.head.sha }}"
         
-        CHANGED_ROOT_DIRS=$(git diff --name-only $BASE_SHA $HEAD_SHA | cut -d '/' -f 1 | sort -u)
+        CHANGED_APPS=$(git diff --name-only $BASE_SHA $HEAD_SHA | cut -d '/' -f 1 | sort -u)
         
-        for D in $CHANGED_ROOT_DIRS; do
+        for D in $CHANGED_APPS; do
             if [ -f "$D/Makefile" ]; then
                 echo "INFO: Selected application: $D"
                 
