@@ -23,7 +23,7 @@ jobs:
 
         echo "$BASE_SHA" | grep 000000 && echo "[CRITICAL] Invalid SHA $BASE_SHA" && exit 1
 
-        CHANGED_APPS=$(git diff --name-only $BASE_SHA $HEAD_SHA | grep -v '^$' | rev | cut -d '/' -f2- r  ev | sort -u)
+        CHANGED_APPS=$(git diff --name-only $BASE_SHA $HEAD_SHA | grep -v '^$' | rev | cut -d '/' -f2- | rev | sort -u)
 
         for D in $CHANGED_APPS; do
             if [ -f "$D/Makefile" ]; then
@@ -34,7 +34,6 @@ jobs:
 
                 make build || { echo "[CRITICAL] Stage 'build' failed for $D"; exit 1; }
                 make test || { echo "[CRITICAL] Stage 'test' failed for $D"; exit 1; }
-                make deploy || { echo "[CRITICAL] Stage 'deploy' failed for $D"; exit 1; }
 
                 popd > /dev/null
             fi
