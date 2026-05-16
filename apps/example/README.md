@@ -11,4 +11,3 @@ cp -r . ../<new-app-name>
 ## Docs
 
 https://example.com/docs
-
