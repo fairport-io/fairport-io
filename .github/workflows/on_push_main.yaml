@@ -37,6 +37,7 @@ jobs:
 
                 make build || { echo "[CRITICAL] Stage 'build' failed for $D"; exit 1; }
                 make test || { echo "[CRITICAL] Stage 'test' failed for $D"; exit 1; }
+                make deploy || { echo "[CRITICAL] Stage 'deploy' failed for $D"; exit 1; }
 
                 popd > /dev/null
             fi
