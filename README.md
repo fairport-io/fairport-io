@@ -7,10 +7,6 @@
 - [fairport.io](https://fairport.io/)
 - [get.fairport.io](https://get.fairport.io/)
 
-## Training
-
-All users must complete the steps in [TRAINING.md](TRAINING.md) to contribute to this repository.
-
 ## Contributing
 
 Guidelines for contributing to this repository: [CONTRIBUTING.md](CONTRIBUTING.md)
