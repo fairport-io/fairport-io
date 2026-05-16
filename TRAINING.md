@@ -5,7 +5,7 @@
 
 ## Steps
 
-If you're alerady acquainted with git and pull-requests, you can skip to the [Speed Run (Advanced)](speed-run-advanced) section.
+If you're alerady acquainted with git and pull-requests, you can skip to the [Speed Run (Advanced)](#speed-run-advanced) section.
 
 If you're just getting started with git follow this directions:
 
