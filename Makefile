@@ -75,7 +75,8 @@ define SETUP_FUNCTIONS
 	}; \
 	makefile_check() { \
 		[ -L Makefile ] || crit "$(TARGET_APP_NAME)/Makefile is not a symlink, it must be symlinked to the root Makefile: ln -s ../Makefile Makefile"; \
-		[ ! -f $(DOCKERFILE) ] && warn "$(TARGET_APP_NAME)/$(DOCKERFILE) does not exist, skipping $(MAKECMDGOALS)" && exit 0; \
+		[ ! -f $(DOCKERFILE) ] && crit "$(TARGET_APP_NAME)/$(DOCKERFILE) does not exist, skipping $(MAKECMDGOALS)" && exit 0; \
+		[ ! -f README.md ] && crit "$(TARGET_APP_NAME)/README.md does not exist, skipping $(MAKECMDGOALS)" && exit 0; \
 	}; \
 	set_artifact_version() { \
 		if [ "$(REPO_BRANCH)" = "main" ]; then \

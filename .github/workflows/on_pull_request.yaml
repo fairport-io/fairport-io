@@ -1,21 +1,25 @@
----
 name: On Pull Request
 
 on:
+  # Changed to pull_request for security. 
+  # It securely tests untrusted code in an isolated environment.
   pull_request:
     branches: [ main ]
 
 jobs:
-  check-training-md:
+  on-pull-request:
     runs-on: ubuntu-latest
     steps:
 
-    - name: Checkout code
+    - name: Checkout PR code
       uses: actions/checkout@v4
-
-    - name: Check if PR author is in GRADUATES.md
+      with:
+        fetch-depth: 0 
+        
+    - name: Check if Author Completed TRAINING.md
+      env:
+        AUTHOR: ${{ github.event.pull_request.user.login }}
       run: |
-        AUTHOR="${{ github.event.pull_request.user.login }}"
         if ! grep -qi "^- $AUTHOR$" .GRADUATES.md; then
             echo "[CRITICAL] PR author ($AUTHOR) not found in .GRADUATES.md"
             echo "[CRITICAL] To fix this please review TRAINING.md"
@@ -24,3 +28,22 @@ jobs:
         else
             echo "PR author ($AUTHOR) found in .GRADUATES.md"
         fi
+
+    - name: Make Build
+      run: |
+        BASE_SHA="${{ github.event.pull_request.base.sha }}"
+        HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+        
+        CHANGED_APPS=$(git diff --name-only $BASE_SHA $HEAD_SHA | cut -d '/' -f 1 | sort -u)
+        
+        for D in $CHANGED_APPS; do
+            if [ -f "$D/Makefile" ]; then
+                echo "INFO: Selected application: $D"
+                
+                pushd "$D" > /dev/null
+                
+                make build || { echo "[CRITICAL] Stage 'build' failed for $D"; exit 1; }
+                
+                popd > /dev/null
+            fi
+        done
