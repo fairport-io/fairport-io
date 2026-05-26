@@ -10,7 +10,7 @@ An extremely opinionated full stack platform including everything from bare-meta
 > [!NOTE]
 > A list of different versions you can install: https://github.com/fairport-io/fairport-io/releases/
 
-> > [!NOTE]
+> [!NOTE]
 > The following command will install the latest released version (you can use specific versions by adding the `--version` flag
 
 ```shell
