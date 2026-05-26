@@ -22,34 +22,34 @@ helm delete fairport
 
 ## Default Features
 
-| Category                          | Default Status | Applicaiton & Documentation |
-| ---                               | ---            | ---                         |
-| [Provisioning](#provisioning)     | ✅ Enabled     | [tinkerbell](../provisioning/README.md) |
-| [Storage](#storage)               | ✅ Enabled     | [openebs](../openebs/README.md) |
-| [Storage](#storage)               | ❌ Disabled    | [seaweedfs](../seaweedfs/README.md) |
-| [Networking](#networking)         | ✅ Enabled     | [kube-vip](../kube-vip/README.md) |
-| [Networking](#networking)         | ✅ Enabled     | `cilium` |
-| [Networking](#networking)         | ✅ Enabled     | `traefik` |
-| [Monitoring](#monitoring)         | ✅ Enabled     | [kube-prometheus-stack](../monitoring/README.md) |
-| [Monitoring](#monitoring)         | ✅ Enabled     | [victoria-logs-cluster](../monitoring/README.md) |
-| [Monitoring](#monitoring)         | ✅ Enabled     | [victoria-traces-cluster](../monitoring/README.md) |
-| [Job Scheduling](#job-scheduling) | ✅ Enabled     | [slurm](../slurm/README.md) |
-| [Job Scheduling](#job-scheduling) | ✅ Enabled     | [slurm-operator](../slurm-operator/README.md) |
-| [Job Scheduling](#job-scheduling) | ✅ Enabled     | [kueue](../kueue/README.md) |
-| [Access Control](#access-control) | ✅ Enabled     | [rancher](../rancher/README.md) |
-| [Access Control](#access-control) | ✅ Enabled     | [kyverno](../kyverno/README.md) |
-| [Certificate Management](#certs)  | ✅ Enabled     | [cert-manager](../cert-manager/README.md) |
-| [Inference](#inference)           | ✅ Enabled     | [kubeai](../kubeai/README.md) |
-| [Inference](#inference)           | ❌ Disabled    | [production-stack-operator](../production-stack-operator/README.md) |
-| [Inference](#inference)           | ❌ Disabled    | [bifrost](../bifrost/README.md) |
-| [Inference](#inference)           | ❌ Disabled    | [mpi-operator](../mpi-operator/README.md)
-| [Training](#training)             | ✅ Enabled     | [slurm](../slurm/README.md) |
-| [Training](#training)             | ✅ Enabled     | [slurm-operator](../slurm-operator/README.md) |
-| [Training](#training)             | ✅ Enabled     | [kueue](../kueue/README.md) |
-| [Training](#training)             | ❌ Disabled    | [mpi-operator](../mpi-operator/README.md)
-| [GPU](#gpu)                       | ✅ Enabled     | [nvidia-gpu-operator](../nvidia-gpu-operator/README.md) |
-| [GPU](#gpu)                       | ❌ Disabled    | [amd-gpu-operator](../amd-gpu-operator/README.md) |
-| [Database](#database)             | ✅ Enabled     | [cloudnative-pg](../cloudnative-pg/README.md) |
+| Category                             | Default Status | Applicaiton & Documentation |
+| ---                                  | ---            | ---                         |
+| [Provisioning](#provisioning) 🛠️     | ✅ Enabled     | [tinkerbell](../provisioning/README.md) |
+| [Storage](#storage) 💾               | ✅ Enabled     | [openebs](../openebs/README.md) |
+| [Storage](#storage) 💾               | ❌ Disabled    | [seaweedfs](../seaweedfs/README.md) |
+| [Networking](#networking) 🌐         | ✅ Enabled     | [kube-vip](../kube-vip/README.md) |
+| [Networking](#networking) 🌐         | ✅ Enabled     | `cilium` |
+| [Networking](#networking) 🌐         | ✅ Enabled     | `traefik` |
+| [Monitoring](#monitoring) 📊         | ✅ Enabled     | [kube-prometheus-stack](../monitoring/README.md) |
+| [Monitoring](#monitoring) 📊         | ✅ Enabled     | [victoria-logs-cluster](../monitoring/README.md) |
+| [Monitoring](#monitoring) 📊         | ✅ Enabled     | [victoria-traces-cluster](../monitoring/README.md) |
+| [Job Scheduling](#job-scheduling) ⏱️ | ✅ Enabled     | [slurm](../slurm/README.md) |
+| [Job Scheduling](#job-scheduling) ⏱️ | ✅ Enabled     | [slurm-operator](../slurm-operator/README.md) |
+| [Job Scheduling](#job-scheduling) ⏱️ | ✅ Enabled     | [kueue](../kueue/README.md) |
+| [Access Control](#access-control) 🔐 | ✅ Enabled     | [rancher](../rancher/README.md) |
+| [Access Control](#access-control) 🔐 | ✅ Enabled     | [kyverno](../kyverno/README.md) |
+| [Certificate Management](#certs)  🔏 | ✅ Enabled     | [cert-manager](../cert-manager/README.md) |
+| [Inference](#inference) 🤖           | ✅ Enabled     | [kubeai](../kubeai/README.md) |
+| [Inference](#inference) 🤖           | ❌ Disabled    | [production-stack-operator](../production-stack-operator/README.md) |
+| [Inference](#inference) 🤖           | ❌ Disabled    | [bifrost](../bifrost/README.md) |
+| [Inference](#inference) 🤖           | ❌ Disabled    | [mpi-operator](../mpi-operator/README.md)
+| [Training](#training) 🏋️             | ✅ Enabled     | [slurm](../slurm/README.md) |
+| [Training](#training) 🏋️             | ✅ Enabled     | [slurm-operator](../slurm-operator/README.md) |
+| [Training](#training) 🏋️             | ✅ Enabled     | [kueue](../kueue/README.md) |
+| [Training](#training) 🏋️             | ❌ Disabled    | [mpi-operator](../mpi-operator/README.md)
+| [GPU](#gpu) 🚀                       | ✅ Enabled     | [nvidia-gpu-operator](../nvidia-gpu-operator/README.md) |
+| [GPU](#gpu) 🚀                       | ❌ Disabled    | [amd-gpu-operator](../amd-gpu-operator/README.md) |
+| [Database](#database) 🗄️             | ✅ Enabled     | [cloudnative-pg](../cloudnative-pg/README.md) |
 
 
 ### Provisioning
