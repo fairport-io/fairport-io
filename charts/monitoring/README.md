@@ -4,6 +4,7 @@ Helm umbrella chart that bundles [kube-prometheus-stack](https://github.com/prom
 
 ## kube-prometheus-stack
 
+<<<<<<< HEAD
 The industry standard for metrics collection and alert routing. It includes a Time Series Database (TSDB), service discovery, alert routing, high availability, and visualization (both Prometheus itself and Grafana).
 
 ```
@@ -177,3 +178,38 @@ This chart uses OpenEBS hostpath provisioners (`openebs-hostpath`) for high-spee
 - **VictoriaTraces Storage**: 2x 10Gi PVCs
 
 Make sure your Kubernetes cluster has OpenEBS or another compatible storage class configured before enabling the storage-backed services.
+=======
+The industry standrd metrics 
+
+
+```
+===================================================================================
+                       KUBE-PROMETHEUS-STACK (HA MODE)
+===================================================================================
+
+ [ NODE 1 ]                                       [ NODE 2 ]
+ +-----------------------------------+            +-----------------------------------+
+ | [Pod A] -> App Exporter (Metrics) |            | [Pod B] -> App Exporter (Metrics) |
+ |                                   |            |                                   |
+ | Node Exporter (Server Metrics)    |            | Node Exporter (Server Metrics)    |
+ +-----------------------------------+            +-----------------------------------+
+                    \_______________________________/
+                     \                             /
+                      \   Both replicas pull      /
+     [ NODE 3 ]        \  identical data twice   /          [ NODE 4 ]
+     +-----------------------+              +------------------------+
+     |  PROMETHEUS SERVER #1 |              |   PROMETHEUS SERVER #2 |
+     |      (Replica A)      |              |      (Replica B)       |
+     +-----------------------+              +------------------------+
+        /                 \                    /                 \
+       /                    \                /                     \
+      /                       \            /                         \
+   +-------------------------------------------------------------------------+
+   |       ALERTS       |       REMOTE WRITES       |     VISUALIZATIONS     |
+   +-------------------------------------------------------------------------+
+   |    Alertmanager    |  Data Dog, Thanos/Cortex  |        Grafana         |
+   +-------------------------------------------------------------------------+
+   | Slack/Pagerduty    |         Browser           |         Browser        |
+   +-------------------------------------------------------------------------+
+```
+>>>>>>> 3113c72307a89ca2ef98f7b5b25bd14387658854
