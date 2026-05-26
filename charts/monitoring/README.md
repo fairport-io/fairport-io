@@ -2,6 +2,13 @@
 
 Helm umbrella chart that bundles [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) (Prometheus + Alertmanager + Grafana) along with VictoriaLogs and VictoriaTraces clusters for comprehensive metrics, logging, and tracing observability.
 
+> [!NOTE]
+> By default only metrics (kube-prometheus-stack) is be enabled because it's storage footprint is orders of magnitude less than whats required for logs and traces.
+> To enable logging and tracing, first ensure you have enough storage, then update your `values.yaml` or pass the following flags during helm installation:
+> ```bash
+> --set victoria-logs-cluster.enabled=true --set victoria-traces-cluster.enabled=true
+> ```
+
 ## kube-prometheus-stack
 
 The industry standard for metrics collection and alert routing. It includes a Time Series Database (TSDB), service discovery, alert routing, high availability, and visualization (both Prometheus itself and Grafana).
@@ -157,16 +164,6 @@ By default, only the core metrics stack is enabled:
 - **kube-prometheus-stack**: Enabled (`true`)
 - **victoria-logs-cluster**: Disabled (`false`)
 - **victoria-traces-cluster**: Disabled (`false`)
-
-### Enabling Logs and Traces
-
-To enable comprehensive logging and tracing, update your `values.yaml` or pass the following flags during installation:
-
-```bash
-helm upgrade --install monitoring ./charts/monitoring \
-  --set victoria-logs-cluster.enabled=true \
-  --set victoria-traces-cluster.enabled=true
-```
 
 ### Persistent Volume Requirements
 
