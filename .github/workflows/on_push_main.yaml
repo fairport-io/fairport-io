@@ -20,7 +20,6 @@ jobs:
         REGISTRY_ADDRESS: ghcr.io/fairport-io 
         REGISTRY_USERNAME: ${{ github.actor }}
         REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
-        OVERWRITE_ARTIFACT: "true"
       run: |
         BASE_SHA="${{ github.event.before }}"
         HEAD_SHA="${{ github.event.after }}"
