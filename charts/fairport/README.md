@@ -40,6 +40,7 @@ helm delete fairport
 | [Access Control](#access-control) | ✅ Enabled     | [kyverno](../kyverno/README.md) |
 | [Certificate Management](#certs)  | ✅ Enabled     | [cert-manager](../cert-manager/README.md) |
 | [Inference](#inference)           | ✅ Enabled     | [kubeai](../kubeai/README.md) |
+| [Inference](#inference)           | ❌ Disabled    | [production-stack-operator](../production-stack-operator/README.md) |
 | [Inference](#inference)           | ❌ Disabled    | [bifrost](../bifrost/README.md) |
 | [Inference](#inference)           | ❌ Disabled    | [mpi-operator](../mpi-operator/README.md)
 | [Training](#training)             | ✅ Enabled     | [slurm](../slurm/README.md) |
