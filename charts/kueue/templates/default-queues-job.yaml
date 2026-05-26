@@ -1,0 +1,130 @@
+{{- if .Values.kueue.enabled }}
+{{- if .Values.installDefaultQueuesJob.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: default-queues
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: default-queues
+rules:
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions"]
+  verbs: ["get", "list"]
+- apiGroups: ["kueue.x-k8s.io"]
+  resources: ["*"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: default-queues
+subjects:
+- kind: ServiceAccount
+  name: default-queues
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: default-queues
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: default-queues
+  annotations:
+    "helm.sh/hook": post-upgrade,post-install
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  template:
+    spec:
+      serviceAccountName: default-queues
+      restartPolicy: OnFailure
+      affinity: {{ .Values.installDefaultQueuesJob.affinity | toJson }}
+      nodeSelector: {{ .Values.installDefaultQueuesJob.nodeSelector | toJson }}
+      tolerations: {{ .Values.installDefaultQueuesJob.tolerations | toJson }}
+      terminationGracePeriodSeconds: 0
+      containers:
+      - name: default-queues
+        image: {{ .Values.installDefaultQueuesJob.image }}
+        command:
+          - "/bin/sh"
+          - "-c"
+          - |
+            info () { echo "[INFO    ] $*"; }
+            crit () { echo "[CRITICAL] $*"; exit 1; }
+
+            info "Starting up"
+            MAX_RETRIES=60
+            for I in $(seq 1 $MAX_RETRIES); do
+                info "Checking if CRDs are installed [$I/$MAX_RETRIES]"
+                CRDS=$(kubectl get crd)
+                echo "$CRDS" | grep -q "workloadpriorityclass" && W=true || info "Need workloadpriorityclass crd"
+                echo "$CRDS" | grep -q "clusterqueue" && C=true || info "Need clusterqueue crd"
+                echo "$CRDS" | grep -q "localqueue" && L=true || info "Need localqueue crd"
+                [ "$W" ] && [ "$C" ] && [ "$L" ] && info "CRDs installed" && break
+                [ $I -eq $MAX_RETRIES ] && crit "Failed to detect kueue CRDs"
+                sleep 1
+            done
+
+            info "Apply queues"
+            cat << EOF | kubectl apply -f -
+            ---
+            apiVersion: kueue.x-k8s.io/v1beta1
+            kind: ResourceFlavor
+            metadata:
+              name: default-flavor
+            spec:
+              nodeLabels:
+                kubernetes.io/os: linux
+            ---
+            apiVersion: kueue.x-k8s.io/v1beta1
+            kind: WorkloadPriorityClass
+            metadata:
+              name: "default-low"
+            value: 1000
+            ---
+            apiVersion: kueue.x-k8s.io/v1beta1
+            kind: WorkloadPriorityClass
+            metadata:
+              name: "default-medium"
+            value: 2000
+            ---
+            apiVersion: kueue.x-k8s.io/v1beta1
+            kind: WorkloadPriorityClass
+            metadata:
+              name: "default-high"
+            value: 3000
+            ---
+            apiVersion: kueue.x-k8s.io/v1beta1
+            kind: ClusterQueue
+            metadata:
+              name: default
+            spec:
+              preemption:
+                withinClusterQueue: LowerPriority
+              resourceGroups:
+              - coveredResources: ["cpu", "memory"]
+                flavors:
+                - name: "default-flavor"
+                  resources:
+                  - name: "cpu"
+                    nominalQuota: 10000 
+                  - name: "memory"
+                    nominalQuota: 10000Gi
+            ---
+            apiVersion: kueue.x-k8s.io/v1beta1
+            kind: LocalQueue
+            metadata:
+              name: default
+              namespace: {{ .Release.Namespace }}
+            spec:
+              clusterQueue: default
+            EOF
+            [ $? -ne 0 ] && crit "Failed to apply default queues"
+            info "Done!"
+{{- end }}
+{{- end }}

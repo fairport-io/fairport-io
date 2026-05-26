@@ -1,0 +1,100 @@
+{{- if .Values.fairport.operator.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.fairport.operator.serviceAccount.name }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.fairport.operator.serviceAccount.name }}
+rules:
+- apiGroups: ["*"]
+  resources: ["*"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.fairport.operator.serviceAccount.name }}
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.fairport.operator.serviceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ .Values.fairport.operator.serviceAccount.name }}
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.fairport.operator.name }}
+spec:
+  replicas: {{ .Values.fairport.operator.replicas }}
+  selector:
+    matchLabels: {{ .Values.fairport.operator.labels | toJson }}
+  template:
+    metadata:
+      labels: {{ .Values.fairport.operator.labels | toJson }}
+      annotations:
+        chartVersion: "{{ .Chart.Version }}"
+    spec:
+      serviceAccountName: {{ .Values.fairport.operator.serviceAccount.name }}
+      affinity: {{ .Values.fairport.operator.affinity | toJson }}
+      nodeSelector: {{ .Values.fairport.operator.nodeSelector | toJson }}
+      tolerations: {{ .Values.fairport.operator.tolerations | toJson }}
+      terminationGracePeriodSeconds: 180
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      initContainers:
+      - name: init
+        image: {{ .Values.fairport.operator.image }}
+        imagePullPolicy: {{ .Values.fairport.operator.imagePullPolicy }}
+        securityContext:
+          runAsUser: 0
+        command:
+        - /bin/sh
+        - -c
+        - |
+          sh /usr/local/bin/fp-add-server > /shared/fp-add-server
+          sh /usr/local/bin/fp-add-agent > /shared/fp-add-agent
+        volumeMounts:
+        - name: node-token
+          mountPath: /var/lib/rancher/rke2/server/node-token
+          readOnly: true
+        - name: usr-local-bin
+          mountPath: /usr/local/bin
+          readOnly: true
+        - name: shared
+          mountPath: /shared
+          readOnly: false
+      containers:
+      - name: {{ .Values.fairport.operator.name }}
+        image: {{ .Values.fairport.operator.image }}
+        imagePullPolicy: {{ .Values.fairport.operator.imagePullPolicy }}
+        resources: {{ .Values.fairport.operator.resources | toJson }}
+        env:
+        - name: CONTAINER_IMAGE
+          value: {{ .Values.fairport.operator.image }}
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        volumeMounts:
+        - name: shared
+          mountPath: /shared
+          readOnly: false
+      volumes:
+        - name: node-token
+          hostPath:
+            path: /var/lib/rancher/rke2/server/node-token
+            type: File
+        - name: usr-local-bin
+          hostPath:
+            path: /usr/local/bin
+            type: Directory
+        - name: shared
+          emptyDir: {}
+{{- end }}

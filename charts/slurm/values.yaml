@@ -1,0 +1,65 @@
+---
+slurm:
+  enabled: true
+  controller:
+    persistence:
+      enabled: false
+  configFiles:
+    Ref: https://slurm.schedmd.com/cgroup.conf.html
+    cgroup.conf: |
+      CgroupPlugin=cgroup/v2
+      IgnoreSystemd=yes
+      ConstrainCores=yes
+      ConstrainRAMSpace=yes
+      ConstrainDevices=yes
+      ConstrainSwapSpace=yes
+    Ref: https://slurm.schedmd.com/gres.conf.html
+    gres.conf: |
+      AutoDetect=nvidia
+    Ref: https://slurm.schedmd.com/mpi.conf.html
+    mpi.conf: |
+      PMIxDebug=0
+    Ref: https://slurm.schedmd.com/namespace.yaml.html
+    namespace.yaml: |
+     ---
+     defaults:
+       auto_base_path: true
+    Ref: https://slurm.schedmd.com/oci.conf.html
+    oci.conf: |
+      FileDebug=debug2
+    Ref: https://slurm.schedmd.com/spank.html#SECTION_CONFIGURATION
+    plugstack.conf: |
+      include /usr/share/pyxis/*
+    Ref: https://slurm.schedmd.com/topology.yaml.html
+  nodesets:
+    slinky:
+      enabled: true
+    nvidia-gpu:
+      enabled: true
+      replicas: 1
+      extraConfMap:
+        Gres: "gpu:1"
+      slurmd:
+        image:
+          repository: ghcr.io/slinkyproject/slurmd
+          tag: 25.05-ubuntu24.04
+        resources:
+          requests:
+            nvidia.com/gpu: "1"
+          limits:
+            nvidia.com/gpu: "1"
+      logfile:
+        image:
+          repository: docker.io/library/alpine
+          tag: latest
+      partition:
+        enabled: false
+      ssh:
+        enabled: false
+      updateStrategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxUnavailable: 25%
+      podSpec:
+        nodeSelector:
+          kubernetes.io/os: linux

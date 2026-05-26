@@ -1,0 +1,80 @@
+---
+kubeai:
+  enabled: true
+  metrics:
+    prometheusOperator:
+      kubeaiPodMonitor:
+        enabled: true
+        labels: {}
+        podMetricsEndpoints:
+        - port: http
+          path: /metrics
+          interval: 15s
+          relabelings:
+          - sourceLabels: [__address__]
+            action: replace
+            regex: '(.*):.*'
+            replacement: '${1}:8080'
+            targetLabel: __address__
+          metricRelabelings:
+          - action: labelmap
+            regex: '(.*)\.(.*)'
+            replacement: '${1}_${2}'
+          - sourceLabels: [__name__]
+            regex: '(.*)\.(.*)'
+            targetLabel: __name__
+            replacement: '${1}_${2}'
+          - sourceLabels: [__name__]
+            regex: '(.*)\.(.*)'
+            targetLabel: __name__
+            replacement: '${1}_${2}'
+          - sourceLabels: [__name__]
+            regex: '(.*)\.(.*)'
+            targetLabel: __name__
+            replacement: '${1}_${2}'
+          - sourceLabels: [__name__]
+            regex: '(.*)\.(.*)'
+            targetLabel: __name__
+            replacement: '${1}_${2}'
+          - sourceLabels: [__name__]
+            regex: '(.*)\.(.*)'
+            targetLabel: __name__
+            replacement: '${1}_${2}'
+          - sourceLabels: [__name__]
+            regex: '(.*)\.(.*)'
+            targetLabel: __name__
+            replacement: '${1}_${2}'
+          - sourceLabels: [__name__]
+            regex: '(.*)\.(.*)'
+            targetLabel: __name__
+            replacement: '${1}_${2}'
+          - sourceLabels: [__name__]
+            regex: '(.*)\.(.*)'
+            targetLabel: __name__
+            replacement: '${1}_${2}'
+          - sourceLabels: [__name__]
+            regex: '(.*)\.(.*)'
+            targetLabel: __name__
+            replacement: '${1}_${2}'
+          - sourceLabels: [__name__]
+            regex: '(.*)\.(.*)'
+            targetLabel: __name__
+            replacement: '${1}_${2}'
+      vLLMPodMonitor:
+        enabled: true
+  open-webui:
+    enabled: false
+    persistence:
+      enabled: false
+resourceprofileManager:
+  enabled: true
+  name: kubeai-resourceprofile-manager
+  replicas: 1
+  image: gcr.io/fairport-io/apps/kubeai-resourceprofile-manager:0.0.1
+  imagePullPolicy: IfNotPresent
+  annotationKey: kubeai.org/resource-profile
+  serviceAccount:
+    name: kubeai-resourceprofile-manager
+  labels:
+    app: kubeai-resourceprofile-manager
+  resources: {}

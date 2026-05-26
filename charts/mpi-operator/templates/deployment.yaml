@@ -1,0 +1,39 @@
+{{- $mpiOperator := index .Values "mpi-operator" -}}
+{{- if $mpiOperator.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mpi-operator
+  labels:
+    app: mpi-operator
+    app.kubernetes.io/component: mpijob
+    app.kubernetes.io/name: mpi-operator
+spec:
+  replicas: {{ $mpiOperator.replicaCount }}
+  selector:
+    matchLabels:
+      app: mpi-operator
+      app.kubernetes.io/component: mpijob
+      app.kubernetes.io/name: mpi-operator
+  template:
+    metadata:
+      annotations:
+        sidecar.istio.io/inject: "false"
+      labels:
+        app: mpi-operator
+        app.kubernetes.io/component: mpijob
+        app.kubernetes.io/name: mpi-operator
+    spec:
+      serviceAccountName: {{ $mpiOperator.serviceAccount.name }}
+      containers:
+      - name: mpi-operator
+        image: {{ $mpiOperator.image }}
+        imagePullPolicy: {{ $mpiOperator.imagePullPolicy }}
+        args:
+        - -alsologtostderr
+        - --lock-namespace={{ $mpiOperator.lockNamespace | default .Release.Namespace }}
+        resources: {{ $mpiOperator.resources | toJson }}
+      nodeSelector: {{ $mpiOperator.nodeSelector | toJson }}
+      tolerations: {{ $mpiOperator.tolerations | toJson }}
+      affinity: {{ $mpiOperator.affinity | toJson }}
+{{- end }}

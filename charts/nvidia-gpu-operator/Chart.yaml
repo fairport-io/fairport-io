@@ -1,0 +1,12 @@
+---
+apiVersion: v2
+name: nvidia-gpu-operator
+version: 0 # Inherited from the VERSION file when make is run
+dependencies:
+  - name: gpu-operator
+    alias: nvidia-gpu-operator
+    condition: nvidia-gpu-operator.enabled
+    version: v26.3.1
+    repository: https://helm.ngc.nvidia.com/nvidia
+annotations:
+  publish-repository: oci://gcr.io/fairport-io

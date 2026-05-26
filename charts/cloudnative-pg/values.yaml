@@ -1,0 +1,22 @@
+cloudnative-pg:
+  enabled: true
+  replicaCount: 1
+  nodeSelector: {}
+  tolerations: []
+
+pg-cluster-installer:
+  image: gcr.io/fairport-io/alpine/kubectl:1.34.1
+  nodeSelector: {}
+  tolerations: []
+  clusters:
+    default:
+      bootstrap:
+        initdb:
+          database: default
+          owner: default
+          secret:
+            name: db-default-credentials
+      instances: 1
+      storage:
+        storageClass: openebs-hostpath
+        size: "1Gi"

@@ -1,0 +1,11 @@
+---
+apiVersion: v2
+name: kubeai
+version: 0 # Inherited from the VERSION file when make is run
+dependencies:
+  - name: kubeai
+    condition: kubeai.enabled
+    version: 0.23.2
+    repository: https://www.kubeai.org
+annotations:
+  publish-repository: oci://gcr.io/fairport-io

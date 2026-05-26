@@ -1,0 +1,19 @@
+{{- $mpiOperator := index .Values "mpi-operator" -}}
+{{- if $mpiOperator.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: mpi-operator
+  labels:
+    app: mpi-operator
+    app.kubernetes.io/component: mpijob
+    app.kubernetes.io/name: mpi-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: mpi-operator
+subjects:
+- kind: ServiceAccount
+  name: {{ $mpiOperator.serviceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}

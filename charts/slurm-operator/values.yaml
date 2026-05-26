@@ -1,0 +1,5 @@
+---
+slurm-operator:
+  enabled: true
+  crds:
+    enabled: true

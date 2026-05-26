@@ -1,0 +1,6 @@
+dependencies:
+- name: kubeai
+  repository: https://www.kubeai.org
+  version: 0.23.2
+digest: sha256:a33a574d8c002f016f3bb55dcec0c9fbf4e4514d5aef0ea79fe9ca6853b4e670
+generated: "2026-05-26T13:36:33.440321-07:00"

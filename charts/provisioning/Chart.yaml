@@ -1,0 +1,9 @@
+---
+apiVersion: v2
+name: provisioning
+version: 0 # Inherited from the VERSION file when make is run
+dependencies:
+- name: tinkerbell
+  condition: tinkerbell.enabled
+  repository: oci://ghcr.io/tinkerbell/charts
+  version: v0.23.0

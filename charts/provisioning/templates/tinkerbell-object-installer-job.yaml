@@ -1,0 +1,393 @@
+{{- if .Values.tinkerbell.enabled }}
+{{- if index $.Values "tinkerbell-object-installer" "enabled" }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tinkerbell-object-installer
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tinkerbell-object-installer
+rules:
+- apiGroups: ["batch"]
+  resources: ["jobs"]
+  verbs: ["create", "get", "list", "watch", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["tinkerbell.org"]
+  resources: ["workflowrulesets", "templates"]
+  verbs: ["create", "get", "list", "watch", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tinkerbell-object-installer
+subjects:
+- kind: ServiceAccount
+  name: tinkerbell-object-installer
+  namespace: {{ $.Release.Namespace }}
+roleRef:
+  kind: Role
+  name: tinkerbell-object-installer
+  apiGroup: rbac.authorization.k8s.io
+{{- range $i, $workflow := .Values.workflows | reverse }}
+{{- $name := $workflow.name }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tinkerbell-object-installer-{{ $name }}
+  annotations:
+    "helm.sh/hook": post-upgrade,post-install
+    "helm.sh/hook-delete-policy": before-hook-creation
+    "helm.sh/hook-weight": "{{ $i }}"
+  labels:
+    fairport.io/app: tinkerbell-object-installer
+spec:
+  template:
+    spec:
+      serviceAccountName: tinkerbell-object-installer
+      restartPolicy: OnFailure
+      nodeSelector: {{ index $.Values "tinkerbell-object-installer" "nodeSelector" | toJson }}
+      tolerations: {{ index $.Values "tinkerbell-object-installer" "tolerations" | toJson }}
+      affinity: {{ index $.Values "tinkerbell-object-installer" "affinity" | toJson }}
+      containers:
+      - name: tinkerbell-object-installer
+        image: {{ index $.Values "tinkerbell-object-installer" "image" }}
+        env: {{ index $.Values "tinkerbell-object-installer" "env" | toJson }}
+        resources: {{ index $.Values "tinkerbell-object-installer" "resources" | toJson }}
+        command:
+        - /bin/sh
+        - -c
+        - |
+
+          # The first object should wait 15s because tinkerbell may not have initialized crds
+          [ {{ $i }} -eq 0 ] && sleep 15
+
+          ARTIFACT_SERVER_IP=$(kubectl -n {{ $.Release.Namespace }} get pod -l app=os-image-cache -o jsonpath='{.items[0].status.podIP}')
+          [ -z "$ARTIFACT_SERVER_IP" ] && echo "Failed to get artifact server IP" && exit 1
+
+          MANAGED_WRS=$(kubectl get wrs --no-headers -l fairport.io/managed-by=tinkerbell-object-installer | grep "^{{ $name }} " | cut -d ' ' -f1 | tr '\n' ' ')
+          [ "$MANAGED_WRS" ] && kubectl delete wrs $MANAGED_WRS
+
+          MANAGED_TEMPLATES=$(kubectl get templates --no-headers -l fairport.io/managed-by=tinkerbell-object-installer | grep "^{{ $name }} " | cut -d ' ' -f1 | tr '\n' ' ')
+          [ "$MANAGED_TEMPLATES" ] && kubectl delete templates $MANAGED_TEMPLATES
+
+          cat <<'EOF' | kubectl apply --server-side --force-conflicts -f -
+          ---
+          apiVersion: tinkerbell.org/v1alpha1
+          kind: WorkflowRuleSet
+          metadata:
+            name: {{ $name }}
+            namespace: {{ $.Release.Namespace }}
+            labels:
+              fairport.io/managed-by: "tinkerbell-object-installer"
+          spec:
+            rules:
+            {{- range $workflow.mac_addresses }}
+              {{- if eq . "*" }}
+            - '{"networkInterfaces":{"mac":[{"wildcard" :"*"}]}}'
+              {{- else }}
+            - '{"networkInterfaces":{"mac":["{{ . }}"]}}'
+              {{- end }}
+            {{- end }}
+            workflow:
+              addAttributes: true
+              disabled: false
+              namespace: {{ $.Release.Namespace }}
+              template:
+                agentValue: worker_id
+                ref: {{ $name }}
+          ---
+          apiVersion: tinkerbell.org/v1alpha1
+          kind: Template
+          metadata:
+            name: {{ $name }}
+            namespace: {{ $.Release.Namespace }}
+            labels:
+              fairport.io/managed-by: "tinkerbell-object-installer"
+          spec:
+            data: |
+              version: "0.1"
+              name: {{ $name }}
+              global_timeout: 1800
+              tasks:
+
+              - name: "os installation"
+                worker: {{`{{ .worker_id }}`}}
+                volumes:
+                - /dev:/dev
+                - /dev/console:/dev/console
+                - /lib/firmware:/lib/firmware:ro
+                actions:
+
+                - name: "Setup Machine"
+                  image: "{{ index $.Values "tinkerbell-object-installer" "tinkerbellMachineInstallerImage" }}"
+                  timeout: 1800
+                  environment:
+                    IMG_URL: "{{ index $workflow "image_url" }}"
+                  command:
+                  - /bin/bash
+                  - -c
+                  - |
+                    info () { echo "[INFO    ] $*"; }
+                    crit () { echo "[CRITICAL] $*"; exit 1; }
+
+                    {{ if $workflow.custom_installer_pxe_pre_install_cmd }}
+                    info "Running custom_installer_pxe_pre_install_cmd"
+                    {{- $workflow.custom_installer_pxe_pre_install_cmd | nindent 20 }}
+                    {{- end }}
+
+                    #######################
+                    # DISK CONFIGURATIONS #
+                    #######################
+
+                    DISKS=$(lsblk -dn -o NAME,SIZE -b | egrep "^(sd|vd|nvme)")
+
+                    if [ -z "$DISK" ]; then
+                        info "Auto selecting target disk"
+                        DISK=$(echo "$DISKS" | sort -k2 -n | head -n1 | awk '{print "/dev/" $1}')
+                    fi
+
+                    {{ if $workflow.wipe_all_disks }}
+                    info "Wiping disks: $DISKS"
+                    wipefs -a $(echo "$DISKS" | awk '{print "/dev/" $1}' | tr '\n' ' ')
+                    {{- end }}
+
+                    info "Streaming QCOW2 image $IMG_URL to /tmp/image.qcow2"
+                    curl -sL "$IMG_URL" -o /tmp/image.qcow2
+                    [ $? -ne 0 ] && crit "Failed to download image"
+
+                    info "Converting QCOW2 image to raw format and streming to disk $DISK"
+                    qemu-img convert -p -f qcow2 -O raw /tmp/image.qcow2 "$DISK"
+                    [ $? -ne 0 ] && crit "Failed to convert image to raw format"
+                    sync
+
+                    info "Inspect $DISK and extract information"
+                    PARTITIONS=$(parted $DISK unit b print)
+                    LARGEST_PARTITION=$(echo "$PARTITIONS" | egrep 'ext4|xfs' | sort -k4 -n | tail -n1)
+                    PARTITION_NUMBER=$(echo "$LARGEST_PARTITION" | awk '{print $1}')
+                    PARTITION_TYPE=$(echo "$LARGEST_PARTITION" | awk '{print $5}')
+
+                    info "Refreshing kernel's partition table"
+                    partprobe $DISK || true
+                    sleep 2
+
+                    info "Fixing GPT header"
+                    sgdisk -e $DISK || true
+
+                    info "Expanding partition"
+                    growpart $DISK $PARTITION_NUMBER
+
+                    info "Find disk partition"
+                    # Handle partition naming (vda1 vs nvme0n1p1)
+                    if [[ "$DISK" == *"nvme"* ]]; then
+                      PART="${DISK}p${PARTITION_NUMBER}"
+                    else
+                      PART="${DISK}${PARTITION_NUMBER}"
+                    fi
+
+                    info "Refreshing kernel's partition table"
+                    partprobe $DISK || true
+                    sleep 2
+
+                    if [ "$PARTITION_TYPE" == "xfs" ]; then
+                        info "Resizing XFS filesystem"
+                        xfs_repair -L "$PART" || true
+                        mkdir -p /tmp/resize_mount
+                        mount "$PART" /tmp/resize_mount
+                        xfs_growfs /tmp/resize_mount
+                        umount /tmp/resize_mount
+                    else
+                        info "Checking filesystem"
+                        e2fsck -f -y "$PART" || true
+
+                        info "Resizing filesystem"
+                        resize2fs "$PART"
+                    fi
+
+                    ############################
+                    # SETUP CHROOT ENVIRONMENT #
+                    ############################
+
+                    info "Mounting partition to configure OS"
+                    mkdir -p /mnt/target
+                    mount $PART /mnt/target
+
+                    info "Setting up chroot environment"
+                    mount -t proc /proc /mnt/target/proc/
+                    mount -t sysfs /sys /mnt/target/sys/
+                    mount -o bind /dev /mnt/target/dev/
+                    mount -o bind /dev/pts /mnt/target/dev/pts/
+
+                    ##########################
+                    # RUN COMMANDS INSIDE OS #
+                    ##########################
+
+                    info "Running configuration in chroot"
+                    chroot /mnt/target /bin/bash << EOCHROOT
+                    info () { echo "[INFO    ][CHROOT] \$*"; }
+                    crit () { echo "[CRITICAL][CHROOT] \$*"; exit 1; }
+
+                    OS_ID=$(sed -n 's/^ID=//p' /etc/os-release)
+                    info "Detected OS ID: \$OS_ID"
+
+                    #####################################
+                    # CUSTOM PRE-INSTALL COMMANDS IN OS #
+                    #####################################
+
+                    {{ if $workflow.custom_os_pxe_pre_install_cmd }}
+                    info "Running custom_os_pxe_pre_install_cmd"
+                    {{- $workflow.custom_os_pxe_pre_install_cmd | replace "$" "\\$" | nindent 20 }}
+                    {{- end }}
+
+                    #############################
+                    # USER CONFIGURATIONS IN OS #
+                    #############################
+
+                    {{- range $.Values.users }}
+                    {{- $user := . }}
+                    {{- $shouldCreate := false }}
+                    {{- range $group := .groups }}
+                      {{- if has $group (index $workflow "user_groups" | default list) }}
+                        {{- $shouldCreate = true }}
+                      {{- end }}
+                    {{- end }}
+
+                    {{- if $shouldCreate }}
+                    CREATE_USER="{{ .username }}"
+
+                    {{- if .gid }}
+                    info "Creating group {{ .username }} with gid {{ .gid }}"
+                    groupadd -g {{ .gid }} {{ .username }} || true
+                    {{- end }}
+
+                    info "Add user: useradd {{ if .uid }} -u {{ .uid }}{{ end }} {{ if .gid }} -g {{ .gid }}{{ end }} -s /bin/bash -d /home/\$CREATE_USER -m \$CREATE_USER"
+                    useradd {{ if .uid }} -u {{ .uid }}{{ end }} {{ if .gid }} -g {{ .gid }}{{ end }} -s /bin/bash -d /home/\$CREATE_USER -m \$CREATE_USER
+
+                    {{- if .sudo }}
+                    info "Add user \$CREATE_USER to sudoers"
+                    echo "\$CREATE_USER ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/\$CREATE_USER
+                    {{- end }}
+
+                    {{- if .password }}
+                    info "Set password for user \$CREATE_USER"
+                    echo "\$CREATE_USER:{{ .password }}" | chpasswd
+                    {{- end }}
+
+                    {{- if (or (gt (len (default (list) .authorized_keys)) 0) .authorized_keys_secret) }}
+                    info "Add SSH authorized keys for user \$CREATE_USER"
+                    mkdir -p /home/\$CREATE_USER/.ssh
+                    touch /home/\$CREATE_USER/.ssh/authorized_keys
+                    chown -R \$CREATE_USER:\$CREATE_USER /home/\$CREATE_USER/.ssh
+                    chmod 700 /home/\$CREATE_USER/.ssh
+                    chmod 600 /home/\$CREATE_USER/.ssh/authorized_keys
+                    {{- end }}
+
+                    {{- range .authorized_keys }}
+                    echo "{{ . }}" >> /home/\$CREATE_USER/.ssh/authorized_keys
+                    {{- end }}
+
+                    {{- if .authorized_keys_secret }}
+                    {{- $secret := lookup "v1" "Secret" $.Release.Namespace .authorized_keys_secret }}
+                    {{- if $secret }}
+                    {{- $authorizedKeysContent := index $secret.data "authorized_keys" | b64dec }}
+                    {{- if $authorizedKeysContent }}
+                    echo '{{ $authorizedKeysContent | b64enc }}' | base64 -d >> /home/\$CREATE_USER/.ssh/authorized_keys
+                    {{- end }}
+                    {{- end }}
+                    {{- end }}
+
+                    {{- end }}
+                    {{- end }}
+
+                    ################################
+                    # NETWORK CONFIGURATIONS IN OS #
+                    ################################
+
+                    info "Enable ssh"
+                    ssh-keygen -A
+                    systemctl enable ssh.service
+                    echo 'PasswordAuthentication yes' > /etc/ssh/sshd_config.d/60-cloudimg-settings.conf
+
+                    info "Configure network"
+                    if echo \$OS_ID | egrep -q "ubuntu|debian"; then
+                        cat << EONET > /etc/netplan/01-netcfg.yaml
+                    network:
+                      version: 2
+                      renderer: networkd
+                      ethernets:
+                        id0:
+                          match:
+                            name: en*
+                          dhcp4: true
+                    EONET
+                    elif echo \$OS_ID | egrep -q "centos|rhel|fedora"; then
+                        cat << EONET > /etc/sysconfig/network-scripts/ifcfg-id0
+                    DEVICE=id0
+                    BOOTPROTO=dhcp
+                    ONBOOT=yes
+                    EONET
+                    fi
+
+                    ######################################
+                    # CUSTOM POST-INSTALL COMMANDS IN OS #
+                    ######################################
+
+                    {{ if $workflow.custom_os_pxe_post_install_cmd }}
+                    info "Running custom_os_pxe_post_install_cmd"
+                    {{- $workflow.custom_os_pxe_post_install_cmd | replace "$" "\\$" | nindent 20 }}
+                    {{- end }}
+
+                    #####################################
+                    # CUSTOM FIRST-BOOT COMMANDS FOR OS #
+                    #####################################
+
+                    cat <<- 'EOCRONTAB' > /etc/cron.d/custom_first_boot_cmd
+                    @reboot root /custom_first_boot_cmd
+                    EOCRONTAB
+
+                    cat << 'EOCRONTAB' > /custom_first_boot_cmd
+                    #!/bin/bash
+
+                    {{ if $workflow.custom_first_boot_cmd }}
+                    {{ $workflow.custom_first_boot_cmd | replace "$" "\\$" | nindent 20 }}
+                    {{- end }}
+
+                    {{ if $workflow.cluster_node_type }}
+                    {{- $secret := lookup "v1" "Secret" "fairport" "node-join-cmds" }}
+                    {{- $cmd := index $secret.data $workflow.cluster_node_type | b64dec }}
+                    {{- $cmd | nindent 20 }}
+                    {{- end }}
+
+                    rm -f /etc/cron.d/custom_first_boot_cmd
+                    rm -f /custom_first_boot_cmd
+                    exit 0
+                    EOCRONTAB
+
+                    chmod +x /custom_first_boot_cmd
+
+                    EOCHROOT
+
+                    {{ if $workflow.custom_installer_pxe_post_install_cmd }}
+                    info "Running custom_installer_pxe_post_install_cmd"
+                    {{- $workflow.custom_installer_pxe_post_install_cmd | nindent 20 }}
+                    {{- end }}
+
+                - name: "reboot in 2s"
+                  image: ghcr.io/jacobweinstock/waitdaemon:latest
+                  timeout: 90
+                  pid: host
+                  command: ["reboot"]
+                  environment:
+                    IMAGE: alpine
+                    WAIT_SECONDS: 2
+                  volumes:
+                    - /var/run/docker.sock:/var/run/docker.sock
+          EOF
+{{- end }}
+{{- end }}
+{{- end }}

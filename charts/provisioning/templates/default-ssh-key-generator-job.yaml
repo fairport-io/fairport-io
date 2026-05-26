@@ -1,0 +1,84 @@
+{{- if .Values.tinkerbell.enabled }}
+{{- if index $.Values "ssh-key-generator-job" "enabled" }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ssh-key-generator
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ssh-key-generator
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ssh-key-generator
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+subjects:
+  - kind: ServiceAccount
+    name: ssh-key-generator
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: ssh-key-generator
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ssh-key-generator
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  template:
+    spec:
+      serviceAccountName: ssh-key-generator
+      restartPolicy: OnFailure
+      containers:
+      - name: keygen
+        image: {{ index .Values "ssh-key-generator-job" "image" }}
+        env:
+        - name: NAMESPACE
+          value: {{ .Release.Namespace }}
+        command:
+          - "/bin/sh"
+          - "-c"
+          - |
+            info () { echo "[INFO    ] $*"; }
+            crit () { echo "[CRITICAL] $*"; exit 1; }
+
+            info "Starting SSH key generation job"
+            USERS_KEY_MAPPINGS="{{ range .Values.users }}{{ .username }}:{{ .authorized_keys_secret }} {{ end }}"
+            EXISTING_SECRETS=$(kubectl -n $NAMESPACE get secrets)
+
+            # Only generate keys if secret doesnt exist
+            for USER_KEY_MAPPING in $USERS_KEY_MAPPINGS; do
+                SECRET_NAME=$(echo $USER_KEY_MAPPING | cut -d':' -f2)
+                [ -z "$SECRET_NAME" ] && crit "Secret name is empty"
+                if ! echo "$EXISTING_SECRETS" | grep -q "^$SECRET_NAME "; then
+                    info "Generating SSH key for secret $SECRET_NAME"
+                    rm -f /tmp/id_rsa /tmp/id_rsa.pub || true
+                    ssh-keygen -t rsa -b 4096 -f /tmp/id_rsa -N "" -q
+                    kubectl create secret generic $SECRET_NAME -n $NAMESPACE \
+                      --from-file=id_rsa=/tmp/id_rsa \
+                      --from-file=id_rsa.pub=/tmp/id_rsa.pub \
+                      --from-file=authorized_keys=/tmp/id_rsa.pub
+                fi
+            done
+{{- end }}
+{{- end }}

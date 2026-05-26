@@ -1,0 +1,22 @@
+# ---
+# apiVersion: batch/v1
+# kind: Job
+# metadata:
+#   name: low-priority-job
+#   namespace: kueue-system
+#   labels:
+#     kueue.x-k8s.io/queue-name: default-low
+#     kueue.x-k8s.io/priority-class: default-low
+# spec:
+#   suspend: true
+#   template:
+#     spec:
+#       containers:
+#       - name: work-container
+#         image: ubuntu
+#         command: ["/bin/bash", "-c", "echo 'I am a Low Priority Job'; sleep 60"]
+#         resources:
+#           requests:
+#             cpu: "1m"
+#             memory: "1Mi"
+#       restartPolicy: Never

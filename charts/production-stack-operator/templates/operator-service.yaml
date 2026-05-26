@@ -1,0 +1,22 @@
+{{- if .Values.operator.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: production-stack-controller-manager-metrics-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: controller-manager
+    app.kubernetes.io/name: production-stack
+    control-plane: controller-manager
+spec:
+  ports:
+  - name: https
+    port: {{ .Values.operator.metricsPort }}
+    protocol: TCP
+    targetPort: {{ .Values.operator.metricsPort }}
+  selector:
+    app.kubernetes.io/component: manager
+    app.kubernetes.io/name: production-stack
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

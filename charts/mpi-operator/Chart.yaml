@@ -1,0 +1,6 @@
+---
+apiVersion: v2
+name: mpi-operator
+version: 0 # Inherited from the VERSION file when make is run
+annotations:
+  publish-repository: oci://gcr.io/fairport-io

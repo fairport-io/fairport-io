@@ -1,0 +1,11 @@
+---
+apiVersion: v2
+name: kueue
+version: 0 # Inherited from the VERSION file when make is run
+dependencies:
+- name: kueue
+  condition: kueue.enabled
+  version: 0.17.3
+  repository: oci://registry.k8s.io/kueue/charts
+annotations:
+  publish-repository: oci://gcr.io/fairport-io

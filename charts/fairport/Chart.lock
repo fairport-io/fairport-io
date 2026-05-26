@@ -1,0 +1,21 @@
+dependencies:
+- name: openebs
+  repository: https://openebs.github.io/openebs
+  version: 4.3.3
+- name: kube-prometheus-stack
+  repository: https://prometheus-community.github.io/helm-charts
+  version: 77.14.0
+- name: opensearch
+  repository: https://opensearch-project.github.io/helm-charts/
+  version: 3.2.1
+- name: opensearch-dashboards
+  repository: https://opensearch-project.github.io/helm-charts/
+  version: 3.1.0
+- name: opentelemetry-collector
+  repository: https://open-telemetry.github.io/opentelemetry-helm-charts
+  version: 0.130.1
+- name: tinkerbell
+  repository: oci://ghcr.io/tinkerbell/charts
+  version: v0.21.0
+digest: sha256:6a5984907b2db3bd1694909c99194afe689db86ed7fcfedd31b2101ebf889c1e
+generated: "2025-10-07T15:24:43.066703-07:00"

@@ -1,0 +1,60 @@
+{{- if .Values.resourceprofileManager.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.resourceprofileManager.serviceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.resourceprofileManager.serviceAccount.name }}
+rules:
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["*"]
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions"]
+  verbs: ["list", "get", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.resourceprofileManager.serviceAccount.name }}
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.resourceprofileManager.serviceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ .Values.resourceprofileManager.serviceAccount.name }}
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.resourceprofileManager.name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: {{ .Values.resourceprofileManager.replicas }}
+  selector:
+    matchLabels: {{ .Values.resourceprofileManager.labels | toJson }}
+  template:
+    metadata:
+      labels: {{ .Values.resourceprofileManager.labels | toJson }}
+    spec:
+      serviceAccountName: {{ .Values.resourceprofileManager.serviceAccount.name }}
+      containers:
+      - name: {{ .Values.resourceprofileManager.name }}
+        image: {{ .Values.resourceprofileManager.image }}
+        imagePullPolicy: {{ .Values.resourceprofileManager.imagePullPolicy }}
+        resources: {{ .Values.resourceprofileManager.resources | toJson }}
+        env:
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: ANNOTATION_KEY
+          value: {{ .Values.resourceprofileManager.annotationKey | quote }}
+{{- end }}

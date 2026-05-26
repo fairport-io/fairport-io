@@ -1,0 +1,42 @@
+{{- if .Values.rancher.service }}
+{{- if .Values.rancher.service.nodePort }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rancher-nodeport
+  namespace: {{ .Values.rancher.targetNamespace }}
+spec:
+  externalTrafficPolicy: Cluster
+  internalTrafficPolicy: Cluster
+  ports:
+  - name: https-internal
+    nodePort: {{ .Values.rancher.service.nodePort }}
+    port: 443
+    protocol: TCP
+    targetPort: 444
+  selector:
+    app: rancher
+  sessionAffinity: None
+  type: NodePort
+{{- end }}
+{{- if .Values.rancher.service.loadBalancerIP }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rancher-vip
+  namespace: {{ .Values.rancher.targetNamespace }}
+spec:
+  type: LoadBalancer
+  loadBalancerIP: {{ .Values.rancher.service.loadBalancerIP }}
+  externalTrafficPolicy: Cluster
+  ports:
+  - name: https-vip
+    protocol: TCP
+    port: {{ .Values.rancher.service.loadBalancerPort | default 30410 }}
+    targetPort: 444
+  selector:
+    app: rancher
+{{- end }}
+{{- end }}

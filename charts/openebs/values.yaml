@@ -1,0 +1,24 @@
+---
+openebs:
+  openebs-crds:
+    csi:
+      volumeSnapshots:
+        enabled: false
+        keep: false
+  preUpgradeHook:
+    enabled: false
+  engines:
+    local:
+      lvm:
+        enabled: false
+      zfs:
+        enabled: false
+      rawfile:
+        enabled: false
+    replicated:
+      mayastor:
+        enabled: false
+  loki:
+    enabled: false
+  alloy:
+    enabled: false

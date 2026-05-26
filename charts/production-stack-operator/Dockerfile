@@ -1,13 +1,13 @@
 FROM alpine/helm:3.20 AS build
 COPY . .
 ARG VERSION
-RUN sed -i "s|^version: .*|version: $VERSION|g" Chart.yaml && \
+RUN helm dependency update && \
+    sed -i "s|^version: .*|version: $VERSION|g" Chart.yaml && \
     echo "./*.tgz" >> .helmignore && \
     echo "./Makefile" >> .helmignore && \
     echo "./.helmignore" >> .helmignore && \
     echo "./.dockerignore" >> .helmignore && \
-    helm dependency update && \
     helm package .
 
 FROM build AS test
-RUN helm template cert-manager . --namespace cert-manager > /dev/null
+RUN helm template production-stack-operator . --namespace production-stack-operator > /dev/null

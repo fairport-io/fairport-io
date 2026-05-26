@@ -1,0 +1,85 @@
+{{- if index .Values "cloudnative-pg" "enabled" }}
+{{- if index .Values "pg-cluster-installer" "clusters" }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "cloudnative-pg.fullname" . }}-init-sa
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cloudnative-pg.fullname" . }}-init-role
+  namespace: {{ .Release.Namespace }}
+rules:
+  # The Job needs full control over CNPG Clusters
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters"]
+    verbs: ["get", "create", "patch", "apply", "update", "list", "watch"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "cloudnative-pg.fullname" . }}-init-rb
+  namespace: {{ .Release.Namespace }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cloudnative-pg.fullname" . }}-init-sa
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "cloudnative-pg.fullname" . }}-init-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "cloudnative-pg.fullname" . }}-init-job-{{ randAlphaNum 4 | lower }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  activeDeadlineSeconds: 300
+  template:
+    spec:
+      serviceAccountName: {{ include "cloudnative-pg.fullname" . }}-init-sa
+      restartPolicy: OnFailure
+      nodeSelector: {{ index .Values "pg-cluster-installer" "nodeSelector" | toJson }}
+      tolerations: {{ index .Values "pg-cluster-installer" "tolerations" | toJson }}
+      containers:
+      - name: kubectl
+        image: {{ index .Values "pg-cluster-installer" "image" }}
+        command:
+        - /bin/sh
+        - -c
+        - |
+          echo "Applying Cluster configurations..."
+
+          {{- range $name, $config := index .Values "pg-cluster-installer" "clusters" }}
+          
+          echo "Processing cluster: {{ $name }}"
+
+          # We construct the YAML manifest dynamically based on values.yaml
+          # We use a retry loop in case the CRD isn't fully ready or there is a conflict
+          for I in $(seq 1 10); do
+              cat <<EOF | kubectl apply --server-side --force-conflicts -f -
+          apiVersion: postgresql.cnpg.io/v1
+          kind: Cluster
+          metadata:
+            name: {{ $name }}
+            namespace: {{ $.Release.Namespace }}
+            labels:
+              app.kubernetes.io/managed-by: Helm
+          spec:
+              {{- toYaml $config | nindent 14 }}
+          EOF
+              [ $? -eq 0 ] && echo "Done" && exit 0
+              sleep 1
+          done
+          exit 1
+          
+          {{- end }}
+{{- end }}
+{{- end }}

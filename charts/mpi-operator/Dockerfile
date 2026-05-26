@@ -6,8 +6,7 @@ RUN sed -i "s|^version: .*|version: $VERSION|g" Chart.yaml && \
     echo "./Makefile" >> .helmignore && \
     echo "./.helmignore" >> .helmignore && \
     echo "./.dockerignore" >> .helmignore && \
-    helm dependency update && \
     helm package .
 
 FROM build AS test
-RUN helm template cert-manager . --namespace cert-manager > /dev/null
+RUN helm template mpi-operator . --namespace mpi-operator > /dev/null

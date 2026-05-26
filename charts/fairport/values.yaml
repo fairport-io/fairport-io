@@ -1,0 +1,262 @@
+---
+fairport:
+  installer:
+    enabled: true
+    name: fairport-installer
+    image: gcr.io/fairport-io/apps/helmfile:1.4.4
+    imagePullPolicy: IfNotPresent
+    serviceAccount:
+      name: helm-installer
+    env: []
+    # - name: HELMFILE_FLAGS
+    #   value: "--debug"
+    affinity: {}
+    resources: {}
+    nodeSelector: {}
+    tolerations: []
+  operator:
+    enabled: true
+    name: fairport-operator
+    replicas: 1
+    image: gcr.io/fairport-io/fairport-operator:0.0.4
+    imagePullPolicy: IfNotPresent
+    serviceAccount:
+      name: fairport-operator
+    labels:
+      fairport.io/app: operator
+    affinity: {}
+    resources: {}
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: "true"
+    tolerations:
+    - operator: Exists
+
+################################
+# Values for Helmfile Releases #
+################################
+#values: {}
+# demo-inference:
+#   enabled: true
+
+helmfile:
+  releases:
+  ###########
+  # Storage #
+  ###########
+  - name: openebs
+    installed: true
+    namespace: openebs
+    createNamespace: true
+    chart: oci://gcr.io/fairport-io/charts/openebs
+    version: 4.4.0
+    atomic: true
+    wait: true
+    values: [ "helmfile-values.yaml.gotmpl" ]
+  ###########
+  # Network #
+  ###########
+  - name: kube-vip
+    installed: true
+    namespace: kube-vip
+    createNamespace: true
+    chart: oci://gcr.io/fairport-io/charts/kube-vip
+    version: 0.9.9
+    atomic: true
+    wait: true
+    values: [ "helmfile-values.yaml.gotmpl" ]
+  ##########################
+  # Certificate Management #
+  ##########################
+  - name: cert-manager
+    installed: true
+    namespace: cert-manager
+    createNamespace: true
+    chart: oci://gcr.io/fairport-io/charts/cert-manager
+    version: 0.3.0
+    atomic: true
+    wait: true
+    needs: [ "openebs/openebs" ]
+    values: [ "helmfile-values.yaml.gotmpl" ]
+  ##############
+  # Monitoring #
+  ##############
+  - name: monitoring
+    installed: true
+    namespace: monitoring
+    createNamespace: true
+    chart: oci://gcr.io/fairport-io/charts/monitoring
+    version: 1.0.0
+    atomic: true
+    wait: true
+    needs: [ "cert-manager/cert-manager" ]
+    values:
+    - "monitoring-replicas.yaml.gotmpl"
+    - "helmfile-values.yaml.gotmpl"
+  #########################
+  # RBAC & Cluster Access #
+  #########################
+  - name: rancher
+    installed: true
+    namespace: cattle-system
+    createNamespace: true
+    chart: oci://gcr.io/fairport-io/charts/rancher
+    version: 2.14.1
+    atomic: true
+    wait: true
+    needs: [ "monitoring/monitoring" ]
+    values: [ "helmfile-values.yaml.gotmpl" ]
+  - name: kyverno
+    installed: true
+    namespace: kyverno
+    createNamespace: true
+    chart: oci://gcr.io/fairport-io/charts/kyverno
+    version: 3.8.1
+    atomic: true
+    wait: true
+    needs: [ "monitoring/monitoring" ]
+    values: [ "helmfile-values.yaml.gotmpl" ]
+  ##################
+  # Job Scheduling #
+  ##################
+  - name: mpi-operator
+    installed: true
+    namespace: mpi-operator
+    createNamespace: true
+    chart: oci://gcr.io/fairport-io/charts/mpi-operator
+    version: 0.8.0
+    atomic: true
+    wait: true
+    needs: [ "cattle-system/rancher", "kyverno/kyverno" ]
+    values: [ "helmfile-values.yaml.gotmpl" ]
+  - name: slurm-operator
+    installed: true
+    namespace: slurm
+    createNamespace: true
+    chart: oci://gcr.io/fairport-io/charts/slurm-operator
+    version: 1.0.2
+    atomic: true
+    wait: true
+    needs: [ "cattle-system/rancher", "kyverno/kyverno" ]
+    values: [ "helmfile-values.yaml.gotmpl" ]
+  - name: kueue
+    installed: true
+    namespace: kueue-system
+    createNamespace: true
+    chart: oci://gcr.io/fairport-io/charts/kueue
+    version: 0.17.3
+    atomic: true
+    wait: true
+    needs: [ "slurm/slurm-operator" ]
+    values: [ "helmfile-values.yaml.gotmpl" ]
+  - name: slurm
+    installed: true
+    namespace: slurm
+    createNamespace: true
+    chart: oci://gcr.io/fairport-io/charts/slurm
+    version: 1.0.2
+    atomic: true
+    wait: true
+    needs: [ "kueue-system/kueue" ]
+    values: [ "helmfile-values.yaml.gotmpl" ]
+  ################
+  # Provisioning #
+  ################
+  # Replacing tinkerbell with provisioning
+  - name: tinkerbell
+    installed: false
+    namespace: tinkerbell
+    createNamespace: true
+    chart: oci://gcr.io/fairport-io/charts/tinkerbell
+    version: 1.0.0
+    atomic: true
+    wait: true
+    needs: [ "slurm/slurm" ]
+    values: [ "helmfile-values.yaml.gotmpl" ]
+  - name: provisioning
+    installed: true
+    namespace: provisioning
+    createNamespace: true
+    chart: oci://gcr.io/fairport-io/charts/provisioning
+    version: 0.3.0
+    atomic: true
+    wait: true
+    needs: [ "slurm/slurm" ]
+    values: [ "helmfile-values.yaml.gotmpl" ]
+  #######
+  # GPU #
+  #######
+  - name: nvidia-gpu-operator
+    installed: true
+    namespace: gpu-operator
+    createNamespace: true
+    chart: oci://gcr.io/fairport-io/charts/nvidia-gpu-operator
+    version: 26.3.1
+    atomic: true
+    wait: true
+    needs: [ "provisioning/provisioning" ]
+    values:
+    - nvidia-gpu-operator:
+        toolkit:
+          env:
+          - name: CONTAINERD_SOCKET
+            value: '{{ env "CONTAINERD_SOCKET" | default "/run/containerd/containerd.sock" }}'
+    - "helmfile-values.yaml.gotmpl"
+  - name: amd-gpu-operator
+    installed: true
+    namespace: amd-gpu-operator
+    createNamespace: true
+    chart: oci://gcr.io/fairport-io/charts/amd-gpu-operator
+    version: 1.5.0
+    atomic: true
+    wait: true
+    needs: [ "provisioning/provisioning" ]
+    values: [ "helmfile-values.yaml.gotmpl" ]
+  ############
+  # Database #
+  ############
+  - name: cloudnative-pg
+    installed: true
+    namespace: cloudnative-pg
+    createNamespace: true
+    chart: oci://gcr.io/fairport-io/charts/cloudnative-pg
+    version: 0.28.2
+    atomic: true
+    wait: true
+    needs: [ "openebs/openebs" ]
+    values: [ "helmfile-values.yaml.gotmpl" ]
+  ################
+  # ML Workloads #
+  ################
+  - name: kubeai
+    installed: true
+    namespace: kubeai
+    createNamespace: true
+    chart: oci://gcr.io/fairport-io/charts/kubeai
+    version: 0.23.2
+    atomic: true
+    wait: true
+    needs: [ "openebs/openebs", "cert-manager/cert-manager", "kueue-system/kueue" ]
+    values: [ "helmfile-values.yaml.gotmpl" ]
+  - name: production-stack-operator
+    installed: true
+    namespace: production-stack-operator
+    createNamespace: true
+    chart: oci://gcr.io/fairport-io/charts/production-stack-operator
+    version: 0.1.11
+    atomic: true
+    wait: true
+    needs: [ "openebs/openebs", "cert-manager/cert-manager", "kueue-system/kueue" ]
+    values: [ "helmfile-values.yaml.gotmpl" ]
+  #########
+  # Demos #
+  #########
+  #- name: demo-inference
+  #  installed: false
+  #  namespace: demo-inference
+  #  createNamespace: true
+  #  chart: oci://gcr.io/fairport-io/charts/demo-inference
+  #  version: 0.3.0
+  #  atomic: true
+  #  wait: true
+  #  needs: [ "openebs/openebs", "cert-manager/cert-manager", "kueue-system/kueue" ]
+  #  values: [ "helmfile-values.yaml.gotmpl" ]

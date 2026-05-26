@@ -1,0 +1,18 @@
+---
+mpi-operator:
+  enabled: false
+  image: mpioperator/mpi-operator:0.8.0
+  imagePullPolicy: IfNotPresent
+  replicaCount: 1
+  serviceAccount:
+    create: true
+    name: mpi-operator
+  lockNamespace: ""
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  labels:
+    app: mpi-operator
+    app.kubernetes.io/component: mpijob
+    app.kubernetes.io/name: mpi-operator

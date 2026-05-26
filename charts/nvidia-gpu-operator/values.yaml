@@ -1,0 +1,4 @@
+# NVIDIA GPU Operator values
+# Container runtime socket is auto-detected by the installer
+nvidia-gpu-operator:
+  enabled: true

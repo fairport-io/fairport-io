@@ -1,0 +1,12 @@
+---
+apiVersion: v2
+name: amd-gpu-operator
+version: 0 # Inherited from the VERSION file when make is run
+dependencies:
+  - name: gpu-operator-charts
+    alias: amd-gpu-operator
+    condition: amd-gpu-operator.enabled
+    version: v1.5.0
+    repository: https://rocm.github.io/gpu-operator
+annotations:
+  publish-repository: oci://gcr.io/fairport-io

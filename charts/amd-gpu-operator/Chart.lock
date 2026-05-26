@@ -1,0 +1,6 @@
+dependencies:
+- name: gpu-operator-charts
+  repository: https://rocm.github.io/gpu-operator
+  version: v1.5.0
+digest: sha256:686009cae64d8b9fea3a7d2ff275ec86548f0369dae725ab01bcebd6776ba99d
+generated: "2026-05-26T13:39:19.966705-07:00"

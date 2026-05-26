@@ -1,0 +1,252 @@
+{{- if .Values.operator.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: production-stack-controller-manager
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: controller-manager
+    app.kubernetes.io/name: production-stack
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: production-stack-leader-election-role
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: controller-manager
+    app.kubernetes.io/name: production-stack
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: production-stack-leader-election-rolebinding
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: controller-manager
+    app.kubernetes.io/name: production-stack
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: production-stack-leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: production-stack-controller-manager
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: production-stack-manager-role
+  labels:
+    app.kubernetes.io/component: controller-manager
+    app.kubernetes.io/name: production-stack
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - persistentvolumeclaims
+  - secrets
+  - serviceaccounts
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - keda.sh
+  resources:
+  - scaledobjects
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - production-stack.vllm.ai
+  resources:
+  - cacheservers
+  - loraadapters
+  - vllmrouters
+  - vllmruntimes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - production-stack.vllm.ai
+  resources:
+  - cacheservers/finalizers
+  - loraadapters/finalizers
+  - vllmrouters/finalizers
+  - vllmruntimes/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - production-stack.vllm.ai
+  resources:
+  - cacheservers/status
+  - loraadapters/status
+  - vllmrouters/status
+  - vllmruntimes/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - rolebindings
+  - roles
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: production-stack-manager-rolebinding
+  labels:
+    app.kubernetes.io/component: controller-manager
+    app.kubernetes.io/name: production-stack
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: production-stack-manager-role
+subjects:
+- kind: ServiceAccount
+  name: production-stack-controller-manager
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: production-stack-metrics-auth-role
+  labels:
+    app.kubernetes.io/component: controller-manager
+    app.kubernetes.io/name: production-stack
+rules:
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: production-stack-metrics-auth-rolebinding
+  labels:
+    app.kubernetes.io/component: controller-manager
+    app.kubernetes.io/name: production-stack
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: production-stack-metrics-auth-role
+subjects:
+- kind: ServiceAccount
+  name: production-stack-controller-manager
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: production-stack-metrics-reader
+  labels:
+    app.kubernetes.io/component: controller-manager
+    app.kubernetes.io/name: production-stack
+rules:
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get
+{{- end }}

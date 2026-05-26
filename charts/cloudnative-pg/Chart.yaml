@@ -1,0 +1,11 @@
+---
+apiVersion: v2
+name: cloudnative-pg
+version: 0 # Inherited from the VERSION file when make is run
+dependencies:
+- name: cloudnative-pg
+  condition: cloudnative-pg.enabled
+  version: 0.28.2
+  repository: https://cloudnative-pg.github.io/charts
+annotations:
+  publish-repository: oci://gcr.io/fairport-io

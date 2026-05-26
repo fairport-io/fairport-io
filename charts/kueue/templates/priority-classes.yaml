@@ -1,0 +1,65 @@
+{{- if .Values.kueue.enabled }}
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: default-high
+value: 1000
+globalDefault: false
+description: "High priority. Goes to front of queue."
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: default-medium
+value: 950
+globalDefault: false
+description: "Medium priority. Can be preempted by High."
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: default-low
+value: 900
+globalDefault: true
+description: "Low priority. Can be preempted by Medium or High."
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: default-high
+spec:
+  hard:
+    pods: "3"
+  scopeSelector:
+    matchExpressions:
+    - operator: In
+      scopeName: PriorityClass
+      values: ["default-high"]
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: default-medium
+spec:
+  hard:
+    pods: "50"
+  scopeSelector:
+    matchExpressions:
+    - operator: In
+      scopeName: PriorityClass
+      values: ["default-medium"]
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: default-low
+spec:
+  hard:
+    pods: "100"
+  scopeSelector:
+    matchExpressions:
+    - operator: In
+      scopeName: PriorityClass
+      values: ["default-low"]
+{{- end }}

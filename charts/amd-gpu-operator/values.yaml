@@ -1,0 +1,3 @@
+# AMD GPU Operator values
+amd-gpu-operator:
+  enabled: false

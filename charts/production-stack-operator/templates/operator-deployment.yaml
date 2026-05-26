@@ -1,0 +1,81 @@
+{{- if .Values.operator.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: production-stack-controller-manager
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: manager
+    app.kubernetes.io/name: production-stack
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: production-stack
+spec:
+  replicas: {{ .Values.operator.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: manager
+      app.kubernetes.io/name: production-stack
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: manager
+        app.kubernetes.io/name: production-stack
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: production-stack-controller-manager
+      {{- with .Values.operator.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.operator.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.operator.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 10
+      containers:
+      - command:
+        - /manager
+        args:
+        - --metrics-bind-address=:{{ .Values.operator.metricsPort }}
+        - --leader-elect
+        - --health-probe-bind-address=:{{ .Values.operator.healthProbePort }}
+        image: "{{ .Values.operator.image }}"
+        name: manager
+        ports:
+        - containerPort: {{ .Values.operator.metricsPort }}
+          name: https
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: {{ .Values.operator.healthProbePort }}
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: {{ .Values.operator.healthProbePort }}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          {{- toYaml .Values.operator.resources | nindent 10 }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        {{- with .Values.operator.extraEnv }}
+        env:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+{{- end }}

@@ -1,0 +1,19 @@
+---
+kueue:
+  enabled: true
+  controllerManager:
+    manager:
+      resources:
+        limits:
+          cpu: "2"
+          memory: 512Mi
+        requests:
+          cpu: 1m
+          memory: 1Mi
+
+installDefaultQueuesJob:
+  enabled: false
+  image: gcr.io/fairport-io/fairport-operator:0.0.4
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}

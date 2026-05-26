@@ -1,0 +1,111 @@
+{{- if .Values.tinkerbell.enabled }}
+{{- if index $.Values "tinkerbell-object-manager" "enabled" }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tinkerbell-object-manager
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: tinkerbell-object-manager
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get","list","patch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "deployments/scale"]
+  verbs: ["get","list","patch"]
+- apiGroups: ["tinkerbell.org"]
+  resources: ["workflowrulesets", "templates", "workflows"]
+  verbs: ["get","list","patch","delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: tinkerbell-object-manager
+subjects:
+- kind: ServiceAccount
+  name: tinkerbell-object-manager
+roleRef:
+  kind: Role
+  name: tinkerbell-object-manager
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tinkerbell-object-manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tinkerbell-object-manager
+  template:
+    metadata:
+      labels:
+        app: tinkerbell-object-manager
+    spec:
+      serviceAccountName: tinkerbell-object-manager
+      nodeSelector: {{ index $.Values "tinkerbell-object-manager" "nodeSelector" | toJson }}
+      tolerations: {{ index $.Values "tinkerbell-object-manager" "tolerations" | toJson }}
+      affinity: {{ index $.Values "tinkerbell-object-manager" "affinity" | toJson }}
+      containers:
+      - name: tinkerbell-object-manager
+        image: {{ index $.Values "tinkerbell-object-manager" "image" }}
+        env: {{ index $.Values "tinkerbell-object-manager" "env" | toJson }}
+        resources: {{ index $.Values "tinkerbell-object-manager" "resources" | toJson }}
+        command:
+        - "sh"
+        - "-c"
+        - |
+          info () { echo "[INFO] $*"; }
+          crit () { echo "[INFO] $*"; touch /tmp/exit/1; }
+
+          start_thread () {
+              local func_name=$1
+              local sleep_time=$2
+              while true; do
+                  $func_name
+                  sleep $sleep_time
+              done &
+          }
+
+          patch_templates () {
+              TEMPLATES=$(kubectl get templates -o yaml)
+              echo "$TEMPLATES" | grep -q "\$HOST_IP" || return 0
+
+              info "Templates require patching to set artifact server IP"
+              ARTIFACT_SERVER_IP=$(kubectl get pods -l app=os-image-cache -o yaml | sed -n 's/^.*podIP: //p')
+              echo "$ARTIFACT_SERVER_IP" | grep -q "[0-9]*\." || crit "Bad hookos pod ip: $ARTIFACT_SERVER_IP"
+              info "Patching templates to automatically use artifact server ip: $ARTIFACT_SERVER_IP"
+              [ -z "$ARTIFACT_SERVER_IP" ] && crit "Faild to get hookos ip" && exit 1
+              echo "$TEMPLATES" | sed "s|\$HOST_IP|$ARTIFACT_SERVER_IP|g" | kubectl apply -f -
+              [ $? -ne 0 ] && crit "Failed to update templates with artifact server IP" && exit 1
+          }
+
+          cleanup_workflows () {
+              [ "$SKIP_WORKFLOW_CLEANUP_ON_SUCCESS" != "true" ] && CLEANUP_SUCCESS_STRING=" SUCCESS " || CLEANUP_SUCCESS_STRING="SKIP"
+              [ "$SKIP_WORKFLOW_CLEANUP_ON_FAILED"  != "true" ] && CLEANUP_FAILED_STRING=" FAILED " || CLEANUP_FAILED_STRING="SKIP"
+              [ "$SKIP_WORKFLOW_CLEANUP_ON_TIMEOUT" != "true" ] && CLEANUP_TIMEOUT_STRING=" TIMEOUT " || CLEANUP_TIMEOUT_STRING="SKIP"
+              WORKFLOWS=$(kubectl get workflows | grep -E "$CLEANUP_SUCCESS_STRING|$CLEANUP_FAILED_STRING|$CLEANUP_TIMEOUT_STRING" | grep " ")
+              if [ "$WORKFLOWS" ]; then
+                  echo "$WORKFLOWS" | while read LINE; do
+                      WORKFLOW=$(echo "$LINE" | awk '{print $1}')
+                      info "Cleaning up workflow: $WORKFLOW"
+                      kubectl delete workflow "$WORKFLOW"
+                  done
+              fi
+          }
+
+          info "Starting up..."
+          start_thread patch_templates 30
+          start_thread cleanup_workflows 300
+          while true; do
+              [ -f /tmp/exit/0 ] && exit 0
+              [ -f /tmp/exit/1 ] && exit 1
+              sleep 5
+          done
+{{- end }}
+{{- end }}

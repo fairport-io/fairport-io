@@ -1,0 +1,11 @@
+---
+rancher:
+  enabled: true
+  replicas: 1
+  tls: external
+  service:
+    type: NodePort
+    nodePort: 30410
+    # For use with kube-vip or other static VIP solutions:
+    # loadBalancerIP: ""
+    # loadBalancerPort: 30410

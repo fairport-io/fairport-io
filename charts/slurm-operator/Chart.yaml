@@ -1,0 +1,11 @@
+---
+apiVersion: v2
+name: slurm-operator
+version: 0 # Inherited from the VERSION file when make is run
+dependencies:
+- name: slurm-operator
+  condition: slinky-operator.enabled
+  repository: oci://ghcr.io/slinkyproject/charts
+  version: 1.0.2
+annotations:
+  publish-repository: oci://gcr.io/fairport-io

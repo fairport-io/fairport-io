@@ -1,0 +1,18 @@
+---
+operator:
+  enabled: false
+  replicas: 1
+  metricsPort: 8443
+  healthProbePort: 8081
+  image: lmcache/production-stack-operator:v0.1.11
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  extraEnv: []
+
+samples:
+  enabled: false
+  runtimes: []
+  routers: []
+  cacheservers: []

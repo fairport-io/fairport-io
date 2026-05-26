@@ -1,0 +1,11 @@
+---
+apiVersion: v2
+name: rancher
+version: 0 # Inherited from the VERSION file when make is run
+dependencies:
+- name: rancher
+  condition: rancher.enabled
+  version: 2.14.1
+  repository: https://releases.rancher.com/server-charts/stable
+annotations:
+  publish-repository: oci://gcr.io/fairport-io

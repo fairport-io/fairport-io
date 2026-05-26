@@ -1,0 +1,84 @@
+{{- if index .Values "tinkerbell" "enabled" }}
+{{- if index .Values "os-image-cache" "enabled" }}
+{{- if index .Values "os-image-cache" "service" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: os-image-cache
+spec:
+{{ index .Values "os-image-cache" "service" | toYaml | indent 2 }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: os-image-cache
+spec:
+  serviceName: "os-image-cache"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: os-image-cache
+  template:
+    metadata:
+      labels:
+        app: os-image-cache
+    spec:
+      terminationGracePeriodSeconds: 0
+      hostNetwork: {{ index .Values "os-image-cache" "hostNetwork" }}
+      volumes: {{ index .Values "os-image-cache" "volumes" | toJson }}
+      affinity: {{ index .Values "os-image-cache" "affinity" | toJson }}
+      nodeSelector: {{ index .Values "os-image-cache" "nodeSelector" | toJson }}
+      tolerations: {{ index .Values "os-image-cache" "tolerations" | toJson }}
+      containers:
+      - name: os-image-cache
+        image: {{ index .Values "os-image-cache" "image" }}
+        env: {{ index .Values "os-image-cache" "env" | toJson }}
+        resources: {{ index .Values "os-image-cache" "resources" | toJson }}
+        volumeMounts: {{ index .Values "os-image-cache" "volumeMounts" | toJson }}
+        ports: {{ index .Values "os-image-cache" "ports" | toJson }}
+        command:
+        - /bin/bash
+        - "-c"
+        - |
+          info () { echo "[$(date +%s)][INFO    ] $*"; }
+          warn () { echo "[$(date +%s)][WARNING ] $*"; }
+          crit () { echo "[$(date +%s)][CRITICAL] $*"; exit 1; }
+
+          cd ${LOCAL_CACHE_DIR}
+
+          for RELEASE in $(echo $HOOK_OS_RELEASES); do
+              ARCHIVE=$(basename $RELEASE)
+              info "Download $ARCHIVE"
+              curl -s -z $ARCHIVE -L -o $ARCHIVE $RELEASE
+              [ $? -ne 0 ] && warn "Failed to cache $ARCHIVE"
+              info "Extract $ARCHIVE"
+              tar -xzf $ARCHIVE
+              [ $? -ne 0 ] && warn "Failed to extract $ARCHIVE"
+          done
+
+          for F in $(ls | egrep "^(dtbs|initramfs|vmlinuz)-latest-lts-"); do
+              NEW_NAME=$(echo $F | sed 's/-latest-lts-/-/g')
+              info "Renaming $F to $NEW_NAME"
+              mv $F $NEW_NAME
+          done
+
+          OS_IMAGES={{ index .Values "os-image-cache" "os-images" | toJson | quote }}
+          OS_IMAGES=$(echo $OS_IMAGES | jq -cr '.[]')
+          info "Caching OS Images: $OS_IMAGES"
+
+          for OS_IMAGE in $(echo "$OS_IMAGES"); do
+              SOURCE_URL=$(echo $OS_IMAGE | jq -r '.["source-url"]')
+              SOURCE_TYPE=$(echo $OS_IMAGE | jq -r '.["source-type"]')
+              SERVING_URL=$(echo $OS_IMAGE | jq -r '.["serving-url"]')
+              info "Caching OS Image: $SOURCE_URL of type $SOURCE_TYPE to be served at $SERVING_URL"
+              info "curl -s -z $(basename $SERVING_URL) -L -o $(basename $SERVING_URL) $SOURCE_URL"
+              curl -s -z $(basename $SERVING_URL) -L -o $(basename $SERVING_URL) $SOURCE_URL
+              [ $? -ne 0 ] && warn "Failed to cache OS Image: $SOURCE_URL"
+          done
+
+          info "Starting HTTP server to serve cached OS images..."
+          python3 -m http.server --directory ${LOCAL_CACHE_DIR} $SERVING_HTTP_PORT
+{{- end }}
+{{- end }}

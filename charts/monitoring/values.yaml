@@ -1,0 +1,141 @@
+kube-prometheus-stack:
+  enabled: true
+  alertmanager:
+    service:
+      port: 80
+    alertmanagerSpec:
+      replicas: 2
+      podAntiAffinity: "hard"
+      storage:
+       volumeClaimTemplate:
+         spec:
+           storageClassName: openebs-hostpath
+           resources:
+             requests:
+               storage: 2Gi
+  prometheus:
+    service:
+      port: 80
+    prometheusSpec:
+      replicas: 2
+      podAntiAffinity: "hard"
+      retentionSize: 10GB
+      ruleSelectorNilUsesHelmValues: false
+      serviceMonitorSelectorNilUsesHelmValues: false
+      podMonitorSelectorNilUsesHelmValues: false
+      probeSelectorNilUsesHelmValues: false
+      scrapeConfigSelectorNilUsesHelmValues: false
+      storageSpec:
+       volumeClaimTemplate:
+         spec:
+           storageClassName: openebs-hostpath
+           resources:
+             requests:
+               storage: 5Gi
+  grafana:
+    grafana.ini:
+      # Disable Password Login for Simplicity
+      auth:
+        disable_login_form: true
+      auth.anonymous:
+        enabled: true
+        org_role: Admin
+    service:
+      port: 80
+    grafana.ini:
+      server:
+        root_url: "%(protocol)s://%(domain)s/grafana/"
+        serve_from_sub_path: true
+    ingress:
+      enabled: false
+      path: /grafana
+      pathType: Prefix
+    sidecar:
+      datasources:
+        enabled: true
+
+  prometheus-node-exporter:
+    service:
+      port: 9109
+      targetPort: 9109
+
+victoria-logs-cluster:
+  enabled: false
+
+  vlstorage:
+    replicaCount: 2
+    retentionPeriod: 2h
+    persistentVolume:
+      enabled: true
+      storageClassName: openebs-hostpath
+      size: 10Gi
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: vlstorage
+            topologyKey: kubernetes.io/hostname
+
+  vlinsert:
+    replicaCount: 2
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: vlinsert
+            topologyKey: kubernetes.io/hostname
+
+  vlselect:
+    fullnameOverride: "vlselect"
+    replicaCount: 2
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: vlselect
+            topologyKey: kubernetes.io/hostname
+
+  vector:
+    enabled: true
+
+
+victoria-traces-cluster:
+  enabled: false
+
+  vtstorage:
+    replicaCount: 2
+    retentionPeriod: 2h
+    persistentVolume:
+      enabled: true
+      storageClassName: openebs-hostpath
+      size: 10Gi
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: vtstorage
+            topologyKey: kubernetes.io/hostname
+
+  vtinsert:
+    replicaCount: 2
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: vtinsert
+            topologyKey: kubernetes.io/hostname
+
+  vtselect:
+    replicaCount: 2
+    affinity:
+      podAntiAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: vtselect
+            topologyKey: kubernetes.io/hostname

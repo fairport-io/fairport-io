@@ -1,0 +1,165 @@
+---
+tinkerbell:
+  enabled: true
+  # HOST_IP is passed into the pod using downward API
+  # This can also be a statically assigned
+  publicIP: "$(HOST_IP)"
+  trustedProxies: ["$(HOST_IP)/32"]
+  artifactsFileServer: "http://$(HOST_IP):7173"
+  deployment:
+    strategy:
+      type: Recreate
+    affinity: {}
+    nodeSelector: {}
+    tolerations: []
+    hostNetwork: true
+    resources:
+      requests: { cpu: "1m", memory: "1Mi" }
+    envs:
+      tinkServer:
+        autoDiscoveryAutoEnrollmentEnabled: true
+        autoDiscoveryEnabled: true
+        autoEnrollmentEnabled: true
+      smee:
+        dhcpMode: auto-proxy
+        ipxeOverrideArchMapping: "7=snp-x86_64.efi,16=snp-x86_64.efi"
+  optional:
+    # os-image-cache will handle this
+    hookos:
+      enabled: false
+    # kube-vip will be managed in another namespace
+    kubevip:
+      enabled: false
+
+# Installs workflow and template objects when helm runs
+tinkerbell-object-installer:
+  enabled: true
+  image: gcr.io/fairport-io/alpine/kubectl:1.34.1
+  tinkerbellMachineInstallerImage: gcr.io/fairport-io/fairport-tinkerbell-tools:0.0.1
+  env: []
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app: tinkerbell
+        topologyKey: kubernetes.io/hostname
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+# Manages objects after helm runs
+tinkerbell-object-manager:
+  enabled: true
+  image: gcr.io/fairport-io/alpine/kubectl:1.34.1
+  env: []
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app: tinkerbell
+        topologyKey: kubernetes.io/hostname
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+# Generates ssh key secrets if they dont exist for users
+ssh-key-generator-job:
+  enabled: true
+  image: gcr.io/fairport-io/fairport-operator:0.0.4
+  env: []
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app: tinkerbell
+        topologyKey: kubernetes.io/hostname
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+# Caches OS images for PXE installation
+os-image-cache:
+  enabled: true
+  image: gcr.io/fairport-io/fairport-tinkerbell-tools:0.0.1
+  hostNetwork: true
+  service:  {}
+    #type: LoadBalancer
+    #loadBalancerIP: "192.168.1.100"
+    #ports:
+    #- port: 7173
+    #  targetPort: 7173
+    #  protocol: TCP
+    #  name: http
+  ports:
+  - containerPort: 7173
+    hostPort: 7173
+  env:
+  - name: HOST_IP
+    valueFrom:
+      fieldRef:
+        fieldPath: status.hostIP
+  - name: SERVING_HTTP_PORT
+    value: "7173"
+  - name: LOCAL_CACHE_DIR
+    value: "/tmp/tinkerbell/cache"
+  - name: HOOK_OS_RELEASES
+    value: "https://github.com/tinkerbell/hook/releases/download/v0.11.1/hook_latest-lts-aarch64.tar.gz https://github.com/tinkerbell/hook/releases/download/v0.11.1/hook_latest-lts-x86_64.tar.gz"
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels:
+            app: tinkerbell
+        topologyKey: kubernetes.io/hostname
+  resources: {}
+  nodeSelector: {}
+  tolerations: []
+  resources: {}
+  volumes:
+  - name: data-volume
+    hostPath:
+      path: /tmp/tinkerbell/cache
+      type: DirectoryOrCreate
+  volumeMounts:
+  - name: data-volume
+    mountPath: /tmp/tinkerbell/cache
+  #volumeClaimTemplates:
+  #- metadata:
+  #    name: data-volume
+  #  spec:
+  #    accessModes: [ "ReadWriteOnce" ]
+  #    storageClassName: "openebs-hostpath"
+  #    resources:
+  #      requests:
+  #        storage: 10Gi
+  os-images:
+    ubuntu-2404:
+      source-url: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+      source-type: qcow2
+      serving-url: http://$HOST_IP:7173/ubuntu-2404.img
+users:
+- username: "fairport"                  # A username
+  groups: [ "default" ]                 # Groups the user belongs to
+  #password: "fairport"                 # Random password will be generated if empty
+  #password_secret: "fp-password"       # Name of a secret to get the password from
+                                        ## kubectl create secret generic fp-password --from-literal=password='yourpassword'
+  sudo: true                            # Give this user sudo privileges
+  require_password_to_sudo: false       # If true, user will need to enter their password when using sudo
+  #uid: 0                               # User ID for the user, will randomly generate if empty
+  #gid: 0                               # Group ID for the user, will randomly generate if empty
+  authorized_keys: []                   # Add ssh keys for the user
+  authorized_keys_secret: "fp-ssh-keys" # Name of a secret containing an authorized_keys file, this will be generated if it doesnt exist
+                                        ## kubectl -n tinkerbell create secret generic fp-ssh-keys --from-file=authorized_keys=$HOME/.ssh/id_rsa.pub
+workflows:
+- name: default
+  mac_addresses: [ "*" ]
+  image_url: "http://$HOST_IP:7173/ubuntu-2404.img"
+  user_groups: [ "default" ]
+  cluster_node_type: ""                     # Add the node to the cluster.  Accepts "agent" or "server" or leave undefined to not add to the cluster.
+  nameservers: []                           # List static dns servers, leave blank to use dhcp
+  wipe_all_disks: false                     # Wipe all disks before installation
+  custom_installer_pxe_pre_install_cmd: ""  # Custom command to run before PXE installs the OS
+  custom_os_pxe_pre_install_cmd: ""         # Custom command to run inside the OS before doing tasks (like adding users)
+  custom_os_pxe_post_install_cmd: ""        # Custom command to run inside the OS after doing tasks (like adding users)
+  custom_installer_pxe_post_install_cmd: "" # Custom command to run after PXE installs the OS
+  custom_first_boot_cmd: ""                 # Custom command to run on the first boot after installation

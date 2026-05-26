@@ -1,0 +1,168 @@
+{{- if .Values.samples.enabled }}
+{{- range .Values.samples.runtimes }}
+---
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: VLLMRuntime
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: production-stack
+    model: {{ .model.modelURL | replace "/" "-" }}
+spec:
+  model:
+    modelURL: {{ .model.modelURL }}
+    enableLoRA: {{ .model.enableLoRA }}
+    enableTool: {{ .model.enableTool }}
+    toolCallParser: {{ .model.toolCallParser | default "" | quote }}
+    maxModelLen: {{ .model.maxModelLen }}
+    dtype: {{ .model.dtype | quote }}
+    maxNumSeqs: {{ .model.maxNumSeqs }}
+    hfTokenSecret:
+      hfTokenSecretName: {{ .model.hfTokenSecretName | quote }}
+      hfTokenKeyName: {{ .model.hfTokenKeyName | quote }}
+  vllmConfig:
+    enableChunkedPrefill: {{ .vllm.enableChunkedPrefill }}
+    enablePrefixCaching: {{ .vllm.enablePrefixCaching }}
+    tensorParallelSize: {{ .vllm.tensorParallelSize }}
+    gpuMemoryUtilization: {{ .vllm.gpuMemoryUtilization | quote }}
+    maxLoras: {{ .vllm.maxLoras }}
+    v1: {{ .vllm.v1 }}
+    port: {{ .vllm.port }}
+    extraArgs:
+      {{- toYaml .vllm.extraArgs | nindent 6 }}
+    env:
+      {{- toYaml .vllm.env | nindent 6 }}
+  deploymentConfig:
+    resources:
+      cpu: {{ .deployment.resources.cpu | quote }}
+      memory: {{ .deployment.resources.memory | quote }}
+      gpu: {{ .deployment.resources.gpu | quote }}
+      gpuType: {{ .deployment.resources.gpuType | quote }}
+    image:
+      registry: {{ .deployment.image.registry | quote }}
+      name: {{ .deployment.image.name | quote }}
+      pullPolicy: {{ .deployment.image.pullPolicy | quote }}
+      pullSecretName: {{ .deployment.image.pullSecretName | quote }}
+    replicas: {{ .deployment.replicas }}
+    deploymentStrategy: {{ .deployment.deploymentStrategy | quote }}
+    {{- with .deployment.nodeSelectorTerms }}
+    nodeSelectorTerms:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .deployment.tolerations }}
+    toleration:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    sidecarConfig:
+      enabled: {{ .deployment.sidecar.enabled }}
+      name: {{ .deployment.sidecar.name | quote }}
+      image:
+        registry: {{ .deployment.sidecar.image.registry | quote }}
+        name: {{ .deployment.sidecar.image.name | quote }}
+        pullPolicy: {{ .deployment.sidecar.image.pullPolicy | quote }}
+      resources:
+        cpu: {{ .deployment.sidecar.resources.cpu | quote }}
+        memory: {{ .deployment.sidecar.resources.memory | quote }}
+      mountPath: {{ .deployment.sidecar.mountPath | quote }}
+  storageConfig:
+    enabled: {{ .storage.enabled }}
+    storageClassName: {{ .storage.storageClassName | quote }}
+    size: {{ .storage.size | quote }}
+    accessMode: {{ .storage.accessMode | quote }}
+    mountPath: {{ .storage.mountPath | quote }}
+  {{- if .lmCache.enabled }}
+  lmCacheConfig:
+    enabled: true
+    cpuOffloadingBufferSize: {{ .lmCache.cpuOffloadingBufferSize | quote }}
+    diskOffloadingBufferSize: {{ .lmCache.diskOffloadingBufferSize | quote }}
+    remoteUrl: {{ .lmCache.remoteUrl | quote }}
+    remoteSerde: {{ .lmCache.remoteSerde | quote }}
+  {{- end }}
+  {{- if .autoscaling.enabled }}
+  autoscalingConfig:
+    enabled: true
+    minReplicas: {{ .autoscaling.minReplicas }}
+    maxReplicas: {{ .autoscaling.maxReplicas }}
+    pollingInterval: {{ .autoscaling.pollingInterval }}
+    triggers:
+      prometheusAddress: {{ .autoscaling.triggers.prometheusAddress | quote }}
+      requestsRunningThreshold: {{ .autoscaling.triggers.requestsRunningThreshold }}
+      promptTokensThreshold: {{ .autoscaling.triggers.promptTokensThreshold }}
+      generationTokensThreshold: {{ .autoscaling.triggers.generationTokensThreshold }}
+    {{- if or .autoscaling.scaleUpPolicy .autoscaling.scaleDownPolicy }}
+    scaleUpPolicy:
+      stabilizationWindowSeconds: {{ .autoscaling.scaleUpPolicy.stabilizationWindowSeconds | default 0 }}
+      podValue: {{ .autoscaling.scaleUpPolicy.podValue | default 1 }}
+      periodSeconds: {{ .autoscaling.scaleUpPolicy.periodSeconds | default 60 }}
+    scaleDownPolicy:
+      stabilizationWindowSeconds: {{ .autoscaling.scaleDownPolicy.stabilizationWindowSeconds | default 300 }}
+      podValue: {{ .autoscaling.scaleDownPolicy.podValue | default 1 }}
+      periodSeconds: {{ .autoscaling.scaleDownPolicy.periodSeconds | default 60 }}
+      scaleToZeroDelaySeconds: {{ .autoscaling.scaleDownPolicy.scaleToZeroDelaySeconds | default 1800 }}
+{{- end }}
+{{- range .Values.samples.cacheservers }}
+---
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: CacheServer
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: production-stack
+spec:
+  image:
+    registry: {{ .image.registry | quote }}
+    name: {{ .image.name | quote }}
+    pullPolicy: {{ .image.pullPolicy | quote }}
+    pullSecretName: {{ .image.pullSecretName | quote }}
+  port: {{ .port }}
+  resources:
+    cpu: {{ .resources.cpu | quote }}
+    memory: {{ .resources.memory | quote }}
+  replicas: {{ .replicas }}
+  deploymentStrategy: {{ .deploymentStrategy | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- range .Values.samples.routers }}
+---
+apiVersion: production-stack.vllm.ai/v1alpha1
+kind: VLLMRouter
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: production-stack
+spec:
+  enableRouter: {{ .enableRouter }}
+  replicas: {{ .replicas }}
+  port: {{ .port }}
+  serviceDiscovery: {{ .serviceDiscovery | quote }}
+  {{- if .k8sLabelSelector }}
+  k8sLabelSelector: {{ .k8sLabelSelector | quote }}
+  {{- end }}
+  routingLogic: {{ .routingLogic | quote }}
+  engineScrapeInterval: {{ .engineScrapeInterval }}
+  requestStatsWindow: {{ .requestStatsWindow }}
+  image:
+    registry: {{ .image.registry | quote }}
+    name: {{ .image.name | quote }}
+    pullPolicy: {{ .image.pullPolicy | quote }}
+  resources:
+    cpu: {{ .resources.cpu | quote }}
+    memory: {{ .resources.memory | quote }}
+  {{- with .env }}
+  env:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .nodeSelectorTerms }}
+  nodeSelectorTerms:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- if .extraArgs }}
+  extraArgs:
+    {{- toYaml .extraArgs | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}

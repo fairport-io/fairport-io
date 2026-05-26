@@ -1,0 +1,208 @@
+{{- if .Values.fairport.installer.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.fairport.installer.serviceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.fairport.installer.serviceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+rules:
+- apiGroups: ["*"]
+  resources: ["*"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.fairport.installer.serviceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.fairport.installer.serviceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: {{ .Values.fairport.installer.serviceAccount.name }}
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.fairport.installer.name }}
+data:
+  helmfile.yaml: |
+    {{- .Values.helmfile | toYaml | nindent 4 }}
+  values.yaml: |
+    {{ if .Values.values }}
+    {{ .Values.values | toJson }}
+    {{ end }}
+  helmfile-values.yaml.gotmpl: |
+    {{ `{{- $allValues := (readFile "values.yaml" | fromYaml) -}}` }}
+    {{ `{{- if hasKey $allValues .Release.Name -}}` }}
+    {{ `{{- index $allValues .Release.Name | toYaml }}` }}
+    {{ `{{- else -}}` }}
+    # Warning: No values found
+    {{ `{{- end -}}` }}
+  monitoring-replicas.yaml.gotmpl: |
+    {{ `{{- $replicas := env "MONITORING_REPLICAS" | default "1" | atoi -}}` }}
+    kube-prometheus-stack:
+      alertmanager:
+        alertmanagerSpec:
+          replicas: {{ `{{ $replicas }}` }}
+      prometheus:
+        prometheusSpec:
+          replicas: {{ `{{ $replicas }}` }}
+    victoria-logs-cluster:
+      vlstorage:
+        replicaCount: {{ `{{ $replicas }}` }}
+      vlinsert:
+        replicaCount: {{ `{{ $replicas }}` }}
+      vlselect:
+        replicaCount: {{ `{{ $replicas }}` }}
+    victoria-traces-cluster:
+      vtstorage:
+        replicaCount: {{ `{{ $replicas }}` }}
+      vtinsert:
+        replicaCount: {{ `{{ $replicas }}` }}
+      vtselect:
+        replicaCount: {{ `{{ $replicas }}` }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.fairport.installer.name }}-values
+data:
+{{- $obj := lookup "v1" "ConfigMap" .Release.Namespace (printf "%s-values" .Values.fairport.installer.name) }}
+{{- if and $obj $obj.data }}
+  values.yaml: |
+{{ index $obj.data "values.yaml" | nindent 4 }}
+{{- else }}
+  values.yaml: ""
+{{- end }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.fairport.installer.name }}-values
+type: Opaque
+data:
+{{- $obj := lookup "v1" "Secret" .Release.Namespace (printf "%s-values" .Values.fairport.installer.name) }}
+{{- if and $obj $obj.data }}
+  values.yaml: {{ index $obj.data "values.yaml" }}
+{{- else }}
+  values.yaml: ""
+{{- end }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.fairport.installer.name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  serviceName: {{ .Values.fairport.installer.name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.fairport.installer.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.fairport.installer.name }}
+    spec:
+      serviceAccountName: {{ .Values.fairport.installer.serviceAccount.name }}
+      affinity: {{ .Values.fairport.installer.affinity | toJson }}
+      nodeSelector: {{ .Values.fairport.installer.nodeSelector | toJson }}
+      tolerations: {{ .Values.fairport.installer.tolerations | toJson }}
+      volumes:
+      - name: installer-config
+        configMap:
+          name: {{ .Values.fairport.installer.name }}
+      - name: values-config
+        configMap:
+          name: {{ .Values.fairport.installer.name }}-values
+      containers:
+      - name: {{ .Values.fairport.installer.name }}
+        image: {{ .Values.fairport.installer.image }}
+        imagePullPolicy: {{ .Values.fairport.installer.imagePullPolicy }}
+        env: {{ .Values.fairport.installer.env | toJson }}
+        resources: {{ .Values.fairport.installer.resources | toJson }}
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "touch shutdown"]
+        volumeMounts:
+        - name: installer-config
+          mountPath: /installer-config
+        - name: values-config
+          mountPath: /values-config
+        workingDir: /data
+        command:
+        - "/bin/bash"
+        - "-c"
+        - |
+          NAME={{ .Values.fairport.installer.name }}
+          kubectl config set-context --current --namespace={{ .Release.Namespace }}
+          
+          # Detect Kubernetes distribution and set container runtime socket
+          echo "[INFO] Detecting Kubernetes distribution..."
+          NODE_LABELS=$(kubectl get nodes -o jsonpath='{.items[0].metadata.labels}' 2>/dev/null)
+          if [ $? -ne 0 ] || [ -z "$NODE_LABELS" ]; then
+              echo "[CRITICAL] Failed to get node labels!"
+              exit 1
+          fi
+          
+          if echo "$NODE_LABELS" | grep -q '"node.kubernetes.io/instance-type":"rke2"'; then
+              export CONTAINERD_SOCKET=/run/k3s/containerd/containerd.sock
+          elif echo "$NODE_LABELS" | grep -q '"rke2.io'; then
+              export CONTAINERD_SOCKET=/run/k3s/containerd/containerd.sock
+          elif echo "$NODE_LABELS" | grep -q '"k3s.io'; then
+              export CONTAINERD_SOCKET=/run/k3s/containerd/containerd.sock
+          elif echo "$NODE_LABELS" | grep -q 'openshift'; then
+              export CONTAINERD_SOCKET=/var/run/crio/crio.sock
+          elif echo "$NODE_LABELS" | grep -q 'microk8s.io/cluster'; then
+              export CONTAINERD_SOCKET=/var/snap/microk8s/common/run/containerd.sock
+          fi
+          echo "[INFO] Using container runtime socket: ${CONTAINERD_SOCKET:-/run/containerd/containerd.sock}"
+
+          # Detect the number of nodes so installer can decide on high availability mode
+          NUM_NODES=$(kubectl get nodes --no-headers | wc -l)
+          if [ $? -ne 0 ] || [ -z "$NUM_NODES" ] || [ "$NUM_NODES" -lt 1 ]; then
+              echo "[CRITICAL] No nodes found in the cluster!"
+              exit 1
+          elif [ "$NUM_NODES" -le 1 ]; then
+              export MONITORING_REPLICAS=1
+          else
+              export MONITORING_REPLICAS=2
+          fi
+
+          cp /installer-config/helmfile-values.yaml.gotmpl .
+          cp /installer-config/monitoring-replicas.yaml.gotmpl .
+          
+          while true; do
+              [ -f shutdown ] && exit 0
+              INSTALLER_HELMFILE_CONTENT=$(cat /installer-config/helmfile.yaml)
+              INSTALLER_VALUES_CONTENT=$(cat /installer-config/values.yaml)
+              VALUES_CONFIG_CONTENT=$(cat /values-config/values.yaml)
+              VALUES_SECRET_CONTENT=$(kubectl get secret $NAME-values -o jsonpath='{.data.values\.yaml}')
+              [ $? -ne 0 ] && echo "[CRITICAL] Failed to fetch secret $NAME-values!" && exit 1
+              ALL_CONTENT="$INSTALLER_HELMFILE_CONTENT $INSTALLER_VALUES_CONTENT $VALUES_CONFIG_CONTENT $VALUES_SECRET_CONTENT"
+              if [ "$ALL_CONTENT" != "$LAST_ALL_CONTENT" ]; then
+                  echo "[INFO] Detected changes, applying updates..."
+                  echo "$INSTALLER_HELMFILE_CONTENT" > helmfile.yaml
+                  echo "$INSTALLER_VALUES_CONTENT" > values.yaml
+                  echo "$VALUES_CONFIG_CONTENT" >> values.yaml
+                  echo "$VALUES_SECRET_CONTENT" | base64 -d >> values.yaml
+
+                  helmfile sync $HELMFILE_FLAGS -f helmfile.yaml
+                  [ $? -ne 0 ] && echo "[ERROR] helmfile sync failed" && exit 1
+                  echo "[INFO] helmfile sync succeeded."
+                  LAST_ALL_CONTENT="$ALL_CONTENT"
+              fi
+              sleep 3
+          done
+{{- end }}

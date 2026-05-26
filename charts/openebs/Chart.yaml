@@ -1,0 +1,10 @@
+---
+apiVersion: v2
+name: openebs
+version: 0 # Inherited from the VERSION file when make is run
+dependencies:
+- name: openebs
+  version: 4.4.0
+  repository: https://openebs.github.io/openebs
+annotations:
+  publish-repository: oci://gcr.io/fairport-io
