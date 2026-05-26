@@ -1,0 +1,33 @@
+name: Fairport Chart Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'charts/fairport/VERSION'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetches all history to accurately generate release notes
+
+      - name: Read Version
+        id: get_version
+        run: |
+          VERSION=$(cat charts/fairport/VERSION | tr -d '[:space:]')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.get_version.outputs.version }}
+          name: Fairport Chart v${{ steps.get_version.outputs.version }}
+          generate_release_notes: true # Automatically generates a changelog based on merged PRs
