@@ -2,6 +2,17 @@
 
 Helm umbrella chart that bundles [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) (Prometheus + Alertmanager + Grafana) along with VictoriaLogs and VictoriaTraces clusters for comprehensive metrics, logging, and tracing observability.
 
+> [!NOTE]
+> By default only metrics (kube-prometheus-stack) is be enabled because it's storage footprint is orders of magnitude less than what's required for logs and traces.
+> To enable logging and tracing, first ensure you have enough storage, then update your `values.yaml` or pass the following flags during helm installation:
+> ```bash
+> --set victoria-logs-cluster.enabled=true --set victoria-traces-cluster.enabled=true
+> ```
+
+
+> [!NOTE]
+> This chart uses OpenEBS hostpath provisioners (`openebs-hostpath`) which are bundled with the Fairport Helm Chart by default for high-speed local storage but can be modified according to requirements (like using another storage class or adjusting volume size).  The adjustments can be made based on the official helm chart: [kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack)
+
 ## kube-prometheus-stack
 
 The industry standard for metrics collection and alert routing. It includes a Time Series Database (TSDB), service discovery, alert routing, high availability, and visualization (both Prometheus itself and Grafana).
@@ -149,65 +160,4 @@ A distributed tracing backend designed for high ingestion performance, low stora
                       +--------------+
                       | Your Browser |
                       +--------------+
-```
-
-## Configuration & Quick Start
-
-By default, only the core metrics stack is enabled:
-- **kube-prometheus-stack**: Enabled (`true`)
-- **victoria-logs-cluster**: Disabled (`false`)
-- **victoria-traces-cluster**: Disabled (`false`)
-
-### Enabling Logs and Traces
-
-To enable comprehensive logging and tracing, update your `values.yaml` or pass the following flags during installation:
-
-```bash
-helm upgrade --install monitoring ./charts/monitoring \
-  --set victoria-logs-cluster.enabled=true \
-  --set victoria-traces-cluster.enabled=true
-```
-
-### Persistent Volume Requirements
-
-This chart uses OpenEBS hostpath provisioners (`openebs-hostpath`) for high-speed local storage but can be modified according to requirements:
-- **Prometheus**: 2x 5Gi PVCs
-- **Alertmanager**: 2x 2Gi PVCs
-- **VictoriaLogs Storage**: 2x 10Gi PVCs
-- **VictoriaTraces Storage**: 2x 10Gi PVCs
-
-Make sure your Kubernetes cluster has OpenEBS or another compatible storage class configured before enabling the storage-backed services.
-=======
-The industry standrd metrics 
-
-
-```
-===================================================================================
-                       KUBE-PROMETHEUS-STACK (HA MODE)
-===================================================================================
-
- [ NODE 1 ]                                       [ NODE 2 ]
- +-----------------------------------+            +-----------------------------------+
- | [Pod A] -> App Exporter (Metrics) |            | [Pod B] -> App Exporter (Metrics) |
- |                                   |            |                                   |
- | Node Exporter (Server Metrics)    |            | Node Exporter (Server Metrics)    |
- +-----------------------------------+            +-----------------------------------+
-                    \_______________________________/
-                     \                             /
-                      \   Both replicas pull      /
-     [ NODE 3 ]        \  identical data twice   /          [ NODE 4 ]
-     +-----------------------+              +------------------------+
-     |  PROMETHEUS SERVER #1 |              |   PROMETHEUS SERVER #2 |
-     |      (Replica A)      |              |      (Replica B)       |
-     +-----------------------+              +------------------------+
-        /                 \                    /                 \
-       /                    \                /                     \
-      /                       \            /                         \
-   +-------------------------------------------------------------------------+
-   |       ALERTS       |       REMOTE WRITES       |     VISUALIZATIONS     |
-   +-------------------------------------------------------------------------+
-   |    Alertmanager    |  Data Dog, Thanos/Cortex  |        Grafana         |
-   +-------------------------------------------------------------------------+
-   | Slack/Pagerduty    |         Browser           |         Browser        |
-   +-------------------------------------------------------------------------+
 ```
