@@ -41,3 +41,4 @@ dhcp-boot=tag:tinkerbell, http://10.1.1.2:8541/ipxe/script/${net0/mac}/auto.ipxe
 # Highly recommended for debugging PXE boot loops.
 log-dhcp
 ```
+

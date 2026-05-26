@@ -65,3 +65,4 @@ cloudnative-pg:
     grafanaDashboard:
       create: true
 ```
+
