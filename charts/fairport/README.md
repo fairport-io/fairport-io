@@ -11,7 +11,7 @@ An extremely opinionated full stack platform including everything from bare-meta
 > The following command will install the latest release.  Get specific versions with: `gcloud artifacts docker images list us-docker.pkg.dev/fairport-io/gcr.io/fairport --include-tags`
 
 ```shell
-helm upgrade --install fairport oci://gcr.io/fairport-io/fairport
+helm upgrade --install fairport oci://ghcr.io/fairport-io/fairport
 ```
 
 ## Delete

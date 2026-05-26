@@ -14,6 +14,6 @@ A fairport tuned and vendored version of [cert-manager](https://cert-manager.io)
 | Sources & Dependencies        | [Chart.yaml](Chart.yaml) |
 | Fairport Tuned Configurations | [values.yaml](values.yaml)
 | All Configuration Options     | https://github.com/cert-manager/cert-manager/blob/master/deploy/charts/cert-manager/values.yaml |
-| Artifact                      | oci://gcr.io/fairport-io/charts/cert-manager |
+| Artifact                      | oci://ghcr.io/fairport-io/charts/cert-manager |
 
 

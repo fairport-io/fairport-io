@@ -9,4 +9,4 @@ dependencies:
     version: v26.3.1
     repository: https://helm.ngc.nvidia.com/nvidia
 annotations:
-  publish-repository: oci://gcr.io/fairport-io
+  publish-repository: oci://ghcr.io/fairport-io

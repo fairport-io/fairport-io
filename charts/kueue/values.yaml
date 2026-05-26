@@ -13,7 +13,7 @@ kueue:
 
 installDefaultQueuesJob:
   enabled: false
-  image: gcr.io/fairport-io/fairport-operator:0.0.4
+  image: ghcr.io/fairport-io/fairport-operator:0.0.4
   nodeSelector: {}
   tolerations: []
   affinity: {}

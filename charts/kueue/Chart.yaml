@@ -8,4 +8,4 @@ dependencies:
   version: 0.17.3
   repository: oci://registry.k8s.io/kueue/charts
 annotations:
-  publish-repository: oci://gcr.io/fairport-io
+  publish-repository: oci://ghcr.io/fairport-io

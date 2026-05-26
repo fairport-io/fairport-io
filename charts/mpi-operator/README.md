@@ -17,7 +17,7 @@ This chart installs the MPI Operator (v0.8.0) which manages `MPIJob` custom reso
 Deploy to any namespace:
 
 ```bash
-helm install mpi-operator oci://gcr.io/fairport-io/charts/mpi-operator --namespace mpi-operator --create-namespace
+helm install mpi-operator oci://ghcr.io/fairport-io/charts/mpi-operator --namespace mpi-operator --create-namespace
 ```
 
 ### Configuration

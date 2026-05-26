@@ -7,4 +7,4 @@ dependencies:
     version: 3.8.1
     repository: https://kyverno.github.io/kyverno/
 annotations:
-  publish-repository: oci://gcr.io/fairport-io
+  publish-repository: oci://ghcr.io/fairport-io

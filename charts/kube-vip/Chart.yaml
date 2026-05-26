@@ -7,4 +7,4 @@ dependencies:
   version: 0.9.9
   repository: https://kube-vip.github.io/helm-charts
 annotations:
-  publish-repository: oci://gcr.io/fairport-io
+  publish-repository: oci://ghcr.io/fairport-io
