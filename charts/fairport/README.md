@@ -8,7 +8,10 @@ An extremely opinionated full stack platform including everything from bare-meta
 > Don't have a Kubernetes cluster?  No problem! `curl https://get.fairport.io | sudo bash -`
 
 > [!NOTE]
-> Check for different release versions: https://github.com/fairport-io/fairport-io/releases/
+> A list of different versions you can install: https://github.com/fairport-io/fairport-io/releases/
+
+> > [!NOTE]
+> The following command will install the latest released version (you can use specific versions by adding the `--version` flag
 
 ```shell
 helm upgrade --install fairport oci://gcr.io/fairport-io/fairport
