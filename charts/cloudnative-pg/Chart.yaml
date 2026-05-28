@@ -8,4 +8,4 @@ dependencies:
   version: 0.28.2
   repository: https://cloudnative-pg.github.io/charts
 annotations:
-  publish-repository: oci://gcr.io/fairport-io
+  publish-repository: oci://ghcr.io/fairport-io

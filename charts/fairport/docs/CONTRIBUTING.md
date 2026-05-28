@@ -46,5 +46,5 @@ git commit -am 'Update chart from 0.0.X to 0.0.Y' && git push
 ```shell
 rm fairport-*.tgz
 helm package .
-helm push fairport-*.tgz oci://gcr.io/fairport-io
+helm push fairport-*.tgz oci://ghcr.io/fairport-io
 ```

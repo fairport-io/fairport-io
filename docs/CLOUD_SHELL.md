@@ -78,7 +78,7 @@ install_fairport() {
             --create-namespace \
             --version $FP_VERSION \
             fairport \
-            oci://gcr.io/fairport-io/fairport
+            oci://ghcr.io/fairport-io/fairport
     fi
 }
 

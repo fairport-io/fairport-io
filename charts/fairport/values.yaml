@@ -3,7 +3,7 @@ fairport:
   installer:
     enabled: true
     name: fairport-installer
-    image: gcr.io/fairport-io/apps/helmfile:1.4.4
+    image: ghcr.io/fairport-io/apps/helmfile:1.4.4
     imagePullPolicy: IfNotPresent
     serviceAccount:
       name: helm-installer
@@ -18,7 +18,7 @@ fairport:
     enabled: true
     name: fairport-operator
     replicas: 1
-    image: gcr.io/fairport-io/fairport-operator:0.0.4
+    image: ghcr.io/fairport-io/fairport-operator:0.0.4
     imagePullPolicy: IfNotPresent
     serviceAccount:
       name: fairport-operator
@@ -47,7 +47,7 @@ helmfile:
     installed: true
     namespace: openebs
     createNamespace: true
-    chart: oci://gcr.io/fairport-io/charts/openebs
+    chart: oci://ghcr.io/fairport-io/charts/openebs
     version: 4.4.0
     atomic: true
     wait: true
@@ -59,7 +59,7 @@ helmfile:
     installed: true
     namespace: kube-vip
     createNamespace: true
-    chart: oci://gcr.io/fairport-io/charts/kube-vip
+    chart: oci://ghcr.io/fairport-io/charts/kube-vip
     version: 0.9.9
     atomic: true
     wait: true
@@ -71,7 +71,7 @@ helmfile:
     installed: true
     namespace: cert-manager
     createNamespace: true
-    chart: oci://gcr.io/fairport-io/charts/cert-manager
+    chart: oci://ghcr.io/fairport-io/charts/cert-manager
     version: 0.3.0
     atomic: true
     wait: true
@@ -84,7 +84,7 @@ helmfile:
     installed: true
     namespace: monitoring
     createNamespace: true
-    chart: oci://gcr.io/fairport-io/charts/monitoring
+    chart: oci://ghcr.io/fairport-io/charts/monitoring
     version: 1.0.0
     atomic: true
     wait: true
@@ -99,7 +99,7 @@ helmfile:
     installed: true
     namespace: cattle-system
     createNamespace: true
-    chart: oci://gcr.io/fairport-io/charts/rancher
+    chart: oci://ghcr.io/fairport-io/charts/rancher
     version: 2.14.1
     atomic: true
     wait: true
@@ -109,7 +109,7 @@ helmfile:
     installed: true
     namespace: kyverno
     createNamespace: true
-    chart: oci://gcr.io/fairport-io/charts/kyverno
+    chart: oci://ghcr.io/fairport-io/charts/kyverno
     version: 3.8.1
     atomic: true
     wait: true
@@ -122,7 +122,7 @@ helmfile:
     installed: true
     namespace: mpi-operator
     createNamespace: true
-    chart: oci://gcr.io/fairport-io/charts/mpi-operator
+    chart: oci://ghcr.io/fairport-io/charts/mpi-operator
     version: 0.8.0
     atomic: true
     wait: true
@@ -132,7 +132,7 @@ helmfile:
     installed: true
     namespace: slurm
     createNamespace: true
-    chart: oci://gcr.io/fairport-io/charts/slurm-operator
+    chart: oci://ghcr.io/fairport-io/charts/slurm-operator
     version: 1.0.2
     atomic: true
     wait: true
@@ -142,7 +142,7 @@ helmfile:
     installed: true
     namespace: kueue-system
     createNamespace: true
-    chart: oci://gcr.io/fairport-io/charts/kueue
+    chart: oci://ghcr.io/fairport-io/charts/kueue
     version: 0.17.3
     atomic: true
     wait: true
@@ -152,7 +152,7 @@ helmfile:
     installed: true
     namespace: slurm
     createNamespace: true
-    chart: oci://gcr.io/fairport-io/charts/slurm
+    chart: oci://ghcr.io/fairport-io/charts/slurm
     version: 1.0.2
     atomic: true
     wait: true
@@ -166,7 +166,7 @@ helmfile:
     installed: false
     namespace: tinkerbell
     createNamespace: true
-    chart: oci://gcr.io/fairport-io/charts/tinkerbell
+    chart: oci://ghcr.io/fairport-io/charts/tinkerbell
     version: 1.0.0
     atomic: true
     wait: true
@@ -176,7 +176,7 @@ helmfile:
     installed: true
     namespace: provisioning
     createNamespace: true
-    chart: oci://gcr.io/fairport-io/charts/provisioning
+    chart: oci://ghcr.io/fairport-io/charts/provisioning
     version: 0.3.0
     atomic: true
     wait: true
@@ -189,7 +189,7 @@ helmfile:
     installed: true
     namespace: gpu-operator
     createNamespace: true
-    chart: oci://gcr.io/fairport-io/charts/nvidia-gpu-operator
+    chart: oci://ghcr.io/fairport-io/charts/nvidia-gpu-operator
     version: 26.3.1
     atomic: true
     wait: true
@@ -205,7 +205,7 @@ helmfile:
     installed: true
     namespace: amd-gpu-operator
     createNamespace: true
-    chart: oci://gcr.io/fairport-io/charts/amd-gpu-operator
+    chart: oci://ghcr.io/fairport-io/charts/amd-gpu-operator
     version: 1.5.0
     atomic: true
     wait: true
@@ -218,7 +218,7 @@ helmfile:
     installed: true
     namespace: cloudnative-pg
     createNamespace: true
-    chart: oci://gcr.io/fairport-io/charts/cloudnative-pg
+    chart: oci://ghcr.io/fairport-io/charts/cloudnative-pg
     version: 0.28.2
     atomic: true
     wait: true
@@ -231,7 +231,7 @@ helmfile:
     installed: true
     namespace: kubeai
     createNamespace: true
-    chart: oci://gcr.io/fairport-io/charts/kubeai
+    chart: oci://ghcr.io/fairport-io/charts/kubeai
     version: 0.23.2
     atomic: true
     wait: true
@@ -241,7 +241,7 @@ helmfile:
     installed: true
     namespace: production-stack-operator
     createNamespace: true
-    chart: oci://gcr.io/fairport-io/charts/production-stack-operator
+    chart: oci://ghcr.io/fairport-io/charts/production-stack-operator
     version: 0.1.11
     atomic: true
     wait: true
@@ -254,7 +254,7 @@ helmfile:
   #  installed: false
   #  namespace: demo-inference
   #  createNamespace: true
-  #  chart: oci://gcr.io/fairport-io/charts/demo-inference
+  #  chart: oci://ghcr.io/fairport-io/charts/demo-inference
   #  version: 0.3.0
   #  atomic: true
   #  wait: true

@@ -16,4 +16,4 @@ dependencies:
   version: 0.1.3
   repository: oci://ghcr.io/victoriametrics/helm-charts
 annotations:
-  publish-repository: oci://gcr.io/fairport-io
+  publish-repository: oci://ghcr.io/fairport-io

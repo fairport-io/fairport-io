@@ -7,4 +7,4 @@ dependencies:
   version: 4.4.0
   repository: https://openebs.github.io/openebs
 annotations:
-  publish-repository: oci://gcr.io/fairport-io
+  publish-repository: oci://ghcr.io/fairport-io

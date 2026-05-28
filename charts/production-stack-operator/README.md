@@ -17,7 +17,7 @@ This chart installs 4 CRDs:
 ### Install
 
 ```bash
-helm upgrade --install production-stack-operator oci://gcr.io/fairport-io/charts/production-stack-operator \
+helm upgrade --install production-stack-operator oci://ghcr.io/fairport-io/charts/production-stack-operator \
   --namespace production-stack-operator \
   --create-namespace \
   --set operator.enabled=true

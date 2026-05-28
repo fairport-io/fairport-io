@@ -8,4 +8,4 @@ dependencies:
     version: 0.23.2
     repository: https://www.kubeai.org
 annotations:
-  publish-repository: oci://gcr.io/fairport-io
+  publish-repository: oci://ghcr.io/fairport-io

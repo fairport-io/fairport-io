@@ -15,7 +15,7 @@ This chart installs the CNPG operator and provides a Job-based mechanism to dyna
 ## Usage
 
 ```bash
-helm install cloudnative-pg oci://gcr.io/fairport-io/charts/cloudnative-pg
+helm install cloudnative-pg oci://ghcr.io/fairport-io/charts/cloudnative-pg
 ```
 
 ### Adding a Cluster

@@ -70,7 +70,7 @@ resourceprofileManager:
   enabled: true
   name: kubeai-resourceprofile-manager
   replicas: 1
-  image: gcr.io/fairport-io/apps/kubeai-resourceprofile-manager:0.0.1
+  image: ghcr.io/fairport-io/apps/kubeai-resourceprofile-manager:0.0.1
   imagePullPolicy: IfNotPresent
   annotationKey: kubeai.org/resource-profile
   serviceAccount:

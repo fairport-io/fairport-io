@@ -14,7 +14,7 @@ An extremely opinionated full stack platform including everything from bare-meta
 > The following command will install the latest released version (use specific versions by adding the `--version` flag)
 
 ```shell
-helm upgrade --namespace fairport --create-namespace --install fairport oci://gcr.io/fairport-io/fairport
+helm upgrade --install --namespace fairport --create-namespace fairport oci://gcr.io/fairport-io/fairport
 ```
 
 ## Delete
