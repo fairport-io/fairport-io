@@ -62,7 +62,7 @@ Allow or deny users and groups access to models, providers, etc.
 
 ### White-Label
 
-Use custom colors and logos - configured via [Environment Variables](#environment-ariables)
+Use custom colors and logos - configured via [Environment Variables](https://github.com/fairport-io/fairport-io/blob/main/apps/fairport-ui/README.md#environment-variables)
 
 ## Features
 
