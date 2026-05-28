@@ -32,6 +32,10 @@
     "react-dom": "^19.0.1",
     "vite": "^6.2.3"
   },
+  "optionalDependencies": {
+    "@electric-sql/pglite": "^0.3.0",
+    "pg": "^8.13.0"
+  },
   "devDependencies": {
     "@playwright/test": "^1.52.0",
     "@types/bcrypt": "^5.0.2",
