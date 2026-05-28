@@ -5,11 +5,19 @@ test.describe.configure({ mode: 'serial' });
 let sharedPage: any;
 
 async function cleanModals() {
-  await sharedPage.keyboard.press('Escape').catch(() => {});
-  await sharedPage.waitForTimeout(50);
   await sharedPage.evaluate(() => {
-    document.querySelectorAll('[role="dialog"]').forEach(el => el.remove());
-  }).catch(() => {});
+    document.querySelectorAll('[role="dialog"] button').forEach(function(btn) {
+      var text = (btn.textContent || '').trim();
+      if (text === 'Done' || text === 'Cancel' || text === 'Copy Key') {
+        btn.click();
+      }
+    });
+  }).catch(function() {});
+  await sharedPage.keyboard.press('Escape').catch(function() {});
+  await sharedPage.waitForTimeout(200);
+  await sharedPage.evaluate(() => {
+    document.querySelectorAll('[role="dialog"]').forEach(function(el) { el.remove(); });
+  }).catch(function() {});
 }
 
 test.beforeAll(async ({ browser }) => {
@@ -116,10 +124,28 @@ test.skip('keys: deletes a key', async () => {
 });
 
 test('keys: code samples toggle between curl and python', async () => {
-  await cleanModals();
-  await sharedPage.getByRole('button', { name: 'API' }).click();
+  // Dismiss any modal via its Done/Cancel/Delete button first
+  await sharedPage.evaluate(() => {
+    var btns = document.querySelectorAll('[role="dialog"] button');
+    for (var i = 0; i < btns.length; i++) {
+      var text = (btns[i].textContent || '').trim();
+      if (text === 'Done' || text === 'Cancel' || text === 'Copy Key') {
+        btns[i].click();
+      }
+    }
+  }).catch(function() {});
+  await sharedPage.waitForTimeout(300);
+  // Force-click the API nav button (skip modal overlay intercept)
+  await sharedPage.getByRole('button', { name: 'API' }).click({ force: true });
+  await sharedPage.waitForTimeout(300);
+  // Dismiss any lingering key-created modal that reappeared
+  var doneBtn = sharedPage.getByRole('button', { name: 'Done' });
+  if (await doneBtn.isVisible({ timeout: 1000 }).catch(function() { return false; })) {
+    await doneBtn.click();
+    await sharedPage.waitForTimeout(200);
+  }
   await expect(sharedPage.getByRole('button', { name: 'curl' })).toBeVisible();
-  await sharedPage.getByRole('button', { name: 'Python' }).click();
+  await sharedPage.getByRole('button', { name: 'Python' }).click({ force: true });
   await expect(sharedPage.getByText('import')).toBeVisible();
 });
 

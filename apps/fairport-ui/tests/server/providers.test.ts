@@ -29,7 +29,7 @@ describe('POST /api/providers', () => {
       .set(auth())
       .send({
         name: 'my-provider',
-        base_url: 'http://localhost:11434/v1',
+        base_url: 'http://example.com/v1',
         models: 'llama3,mistral',
         api_key: 'sk-test-key',
       });
@@ -55,7 +55,7 @@ describe('POST /api/providers', () => {
       .set(auth())
       .send({
         name: 'bad-limits',
-        base_url: 'http://localhost:11434/v1',
+        base_url: 'http://example.com/v1',
         rate_limits: 'invalid-format',
       });
 
@@ -68,7 +68,7 @@ describe('POST /api/providers', () => {
       .set(auth())
       .send({
         name: 'bad-queue',
-        base_url: 'http://localhost:11434/v1',
+        base_url: 'http://example.com/v1',
         queue_max_size: -1,
       });
 
@@ -79,12 +79,12 @@ describe('POST /api/providers', () => {
     await request(app)
       .post('/api/providers')
       .set(auth())
-      .send({ name: 'dup-provider', base_url: 'http://localhost:11434/v1' });
+      .send({ name: 'dup-provider', base_url: 'http://example.com/v1' });
 
     const res = await request(app)
       .post('/api/providers')
       .set(auth())
-      .send({ name: 'dup-provider', base_url: 'http://localhost:11434/v1' });
+      .send({ name: 'dup-provider', base_url: 'http://example.com/v1' });
 
     expect(res.status).toBe(409);
   });
@@ -120,7 +120,7 @@ describe('PUT /api/providers/:id', () => {
     const res = await request(app)
       .post('/api/providers')
       .set(auth())
-      .send({ name: 'update-me', base_url: 'http://localhost:11434/v1' });
+      .send({ name: 'update-me', base_url: 'http://example.com/v1' });
     providerId = res.body.id;
   });
 
@@ -158,7 +158,7 @@ describe('DELETE /api/providers/:id', () => {
     const res = await request(app)
       .post('/api/providers')
       .set(auth())
-      .send({ name: 'delete-me-provider', base_url: 'http://localhost:11434/v1' });
+      .send({ name: 'delete-me-provider', base_url: 'http://example.com/v1' });
     deleteId = res.body.id;
   });
 
