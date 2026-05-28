@@ -1,4 +1,4 @@
-REGISTRY_ADDRESS   ?= gcr.io/fairport-io
+REGISTRY_ADDRESS   ?= ghcr.io/fairport-io
 SHELL              := /bin/bash
 REGISTRY_USERNAME  ?=
 REGISTRY_PASSWORD  ?=

@@ -1,0 +1,6 @@
+{
+  "name": "%APP_NAME%",
+  "description": "A professional AI chat interface with Material Design aesthetics and dark mode support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
