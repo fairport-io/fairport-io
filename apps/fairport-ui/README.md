@@ -189,30 +189,15 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 
 ## Database
 
-The app supports three database backends via the `DATABASE_TYPE` env var:
+Controlled by `DATABASE_TYPE` env var. All backends share the same schema: `users`, `api_keys`, `roles`, `groups_table`, `models`, `messages`, `providers`, `model_pricing`, `usage_events`.
 
-### `yaml` (default)
-Stores all data in a single `db.yaml` file at the app root. No dependencies required. Simple file-based persistence — the entire dataset is read on each request and written back on mutations. Suitable for single-user or development use.
+| Backend | Type | Dependencies | Persistence | Required Config |
+|---------|------|-------------|-------------|-----------------|
+| `yaml` | File-based | none | `db.yaml` | — |
+| `pglite` | Embedded WASM | `@electric-sql/pglite` | `pglite-data/` dir | `DATABASE_TYPE=pglite` |
+| `postgres` | External server | `pg` | PostgreSQL server | `PGHOST`, `PGUSER`, `PGPASSWORD` |
 
-### `pglite`
-Uses [PGlite](https://github.com/electric-sql/pglite), an embedded PostgreSQL engine compiled to WASM. Runs in-process with no external services. Data is persisted to a `pglite-data/` directory. Tables (mirroring the YAML collections) are created automatically on first access. Enable with:
-
-```
-DATABASE_TYPE=pglite
-```
-
-### `postgres`
-Connects to an external PostgreSQL server via the `pg` package. The database and tables are created automatically on first connection (no manual schema setup required). `PGHOST`, `PGUSER`, and `PGPASSWORD` are required:
-
-```
-DATABASE_TYPE=postgres PGHOST=db.example.com PGUSER=myuser PGPASSWORD=mypass
-```
-
-Optional vars: `PGPORT` (default `5432`), `PGDATABASE` (default `fairport-ui`).
-
-### Schema
-
-All backends share the same schema: `users`, `api_keys`, `roles`, `groups_table`, `models`, `messages`, `providers`, `model_pricing`, `usage_events`. Complex fields (permissions, members) are stored as JSON (`TEXT` in PGlite, `JSONB` in PostgreSQL).
+JSON fields stored as `TEXT` in PGlite, `JSONB` in PostgreSQL. Database and tables created automatically on first connection (PostgreSQL) or first access (PGlite). Optional Postgres vars: `PGPORT` (5432), `PGDATABASE` (fairport-ui).
 
 ## RBAC Schema
 
