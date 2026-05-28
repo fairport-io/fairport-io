@@ -19,8 +19,8 @@
 
 Added `DATABASE_TYPE` env var to support multiple database backends:
 
-- `DATABASE_TYPE=yaml` (default): stores data in `db.yaml` (existing behavior, unchanged)
-- `DATABASE_TYPE=pglite`: uses embedded PGlite WASM engine via `@electric-sql/pglite`
+- `DATABASE_TYPE=pglite` (default): uses embedded PGlite WASM engine via `@electric-sql/pglite`
+- `DATABASE_TYPE=yaml`: stores data in `db.yaml` (existing behavior, unchanged)
 - `DATABASE_TYPE=postgres`: uses full PostgreSQL via `pg` package
 
 ### Docker & Build Fixes
@@ -41,7 +41,7 @@ All database operations were extracted from `server.ts` into a proper abstractio
 `server.ts` now imports `createDatabase` and uses `async loadDb()` / `async saveDb(data)` throughout.
 
 ### New env vars
-- `DATABASE_TYPE` — `yaml` (default), `pglite`, or `postgres`
+- `DATABASE_TYPE` — `pglite` (default), `yaml`, or `postgres`
 - `PGHOST` — required when `DATABASE_TYPE=postgres`
 - `PGPORT` — default `5432`
 - `PGDATABASE` — default `fairport-ui`

@@ -170,7 +170,7 @@ function isAllowedProviderUrl(rawUrl: string): boolean {
 
 
 // --- DATABASE TYPE ---
-const DATABASE_TYPE = (process.env.DATABASE_TYPE || 'yaml') as 'yaml' | 'pglite' | 'postgres';
+const DATABASE_TYPE = (process.env.DATABASE_TYPE || 'pglite') as 'yaml' | 'pglite' | 'postgres';
 
 // --- DATABASE OPERATIONS ---
 const dbAdapter: DatabaseAdapter = createDatabase(DATABASE_TYPE);

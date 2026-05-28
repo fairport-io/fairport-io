@@ -180,7 +180,7 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | `TRUST_PROXY` | `` | Set to `1` (or a number/string) to enable reverse-proxy IP trust for correct client IP detection |
 | `AUTH_RATE_LIMIT_MAX` | `10` | Max failed auth attempts per IP before rate limiting kicks in |
 | `AUTH_RATE_LIMIT_WINDOW_MS` | `900000` (15 min) | Auth rate limit sliding window in milliseconds |
-| `DATABASE_TYPE` | `yaml` | Database backend: `yaml` (file-based), `pglite` (embedded WASM), or `postgres` (full PostgreSQL) |
+| `DATABASE_TYPE` | `pglite` | Database backend: `pglite` (embedded WASM), `yaml` (file-based), or `postgres` (full PostgreSQL) |
 | `PGHOST` | `` | PostgreSQL host (required when `DATABASE_TYPE=postgres`) |
 | `PGPORT` | `5432` | PostgreSQL port |
 | `PGDATABASE` | `fairport-ui` | PostgreSQL database name |
@@ -193,8 +193,8 @@ Controlled by `DATABASE_TYPE` env var. All backends share the same schema: `user
 
 | Backend    | Type            | Dependencies           | Persistence        | Required Environment Variables |
 |------------|-----------------|------------------------|--------------------|--------------------------------|
-| `yaml`     | File-based      | none                   | `db.yaml`          | None (Default)                 |
-| `pglite`   | Embedded WASM   | none (embedded pglite) | `pglite-data/` dir | `DATABASE_TYPE=pglite`         |
+| `pglite`   | Embedded WASM   | none (embedded pglite) | `pglite-data/` dir | None (Default)                 |
+| `yaml`     | File-based      | none                   | `db.yaml`          | `DATABASE_TYPE=yaml`           |
 | `postgres` | External server | Postgres server        | Postgres server    | `DATABASE_TYPE=postgres`, `PGHOST`, `PGUSER`, `PGPASSWORD` |
 
 JSON fields stored as `TEXT` in PGlite, `JSONB` in PostgreSQL. Database and tables created automatically on first connection (PostgreSQL) or first access (PGlite). Optional Postgres vars: `PGPORT` (5432), `PGDATABASE` (fairport-ui).
