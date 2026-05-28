@@ -33,6 +33,7 @@ The following security issues were identified and fixed:
 - `TRUST_PROXY` — set to `1` (or a number/string) to enable reverse-proxy IP trust
 - `AUTH_RATE_LIMIT_MAX` — max auth attempts per window (default: `10`)
 - `AUTH_RATE_LIMIT_WINDOW_MS` — rate limit window in ms (default: `900000` = 15 min)
+- `SIGNUPS_ENABLED` — set to `false` to disable new user registration (default: `true`); login unaffected
 
 ### New endpoints
 - `POST /api/auth/oauth/exchange` — exchanges a short-lived one-time OAuth code for a JWT
@@ -78,7 +79,7 @@ The following security issues were identified and fixed:
 
 ### Authentication
 - `POST /api/auth/login` - Login, returns `{ token, user: { id, name }, api_key }`
-- `POST /api/auth/signup` - Create user, returns `{ token, user: { id, name }, api_key }`
+- `POST /api/auth/signup` - Create user, returns `{ token, user: { id, name }, api_key }`; returns 403 when `SIGNUPS_ENABLED=false`
 - `POST /api/auth/logout` - No-op (client discards token)
 - `GET /api/auth/session` - Validate JWT from Bearer header, returns user info
 - `JWT_SECRET` env var (auto-generated if unset), `JWT_EXPIRY` env var (default `24h`)
