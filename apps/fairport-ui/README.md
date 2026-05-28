@@ -12,7 +12,7 @@ docker run -it --rm -p 8000:8000 \
   -e DEFAULT_PROVIDER_MODEL="default" \
   -e DEFAULT_PROVIDER_API_KEY="sk-xxxx" \
   -e SECRET_KEY="$(openssl rand -hex 8)" \
-  ghcr.io/fairport-io/apps/chat-frontend:0.0.1
+  ghcr.io/fairport-io/apps/fairport-ui:0.0.1
 ```
 
 ## Highlights
