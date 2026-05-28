@@ -585,6 +585,7 @@ app.use(helmet({
       imgSrc: ["'self'", 'data:', 'https:'],
       connectSrc: ["'self'"],
       fontSrc: ["'self'", 'https:'],
+      upgradeInsecureRequests: null,
     }
   },
   crossOriginEmbedderPolicy: false, // allow OAuth provider favicon loading
