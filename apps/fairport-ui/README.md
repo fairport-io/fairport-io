@@ -177,6 +177,42 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | `APP_URL` | `` | Public URL of the app (used for OAuth redirect URIs; auto-detected if behind proxy) |
 | `SIGNUPS_ENABLED` | `true` | Set to `false` to disable new user registration (login unaffected) |
 | `BOOTSTRAP_ADMIN_EMAILS` | `` | Comma-separated emails granted Global Admin role on login/signup (full `*` permissions) |
+| `TRUST_PROXY` | `` | Set to `1` (or a number/string) to enable reverse-proxy IP trust for correct client IP detection |
+| `AUTH_RATE_LIMIT_MAX` | `10` | Max failed auth attempts per IP before rate limiting kicks in |
+| `AUTH_RATE_LIMIT_WINDOW_MS` | `900000` (15 min) | Auth rate limit sliding window in milliseconds |
+| `DATABASE_TYPE` | `yaml` | Database backend: `yaml` (file-based), `pglite` (embedded WASM), or `postgres` (full PostgreSQL) |
+| `PGHOST` | `` | PostgreSQL host (required when `DATABASE_TYPE=postgres`) |
+| `PGPORT` | `5432` | PostgreSQL port |
+| `PGDATABASE` | `fairport-ui` | PostgreSQL database name |
+| `PGUSER` | `` | PostgreSQL user (required when `DATABASE_TYPE=postgres`) |
+| `PGPASSWORD` | `` | PostgreSQL password (required when `DATABASE_TYPE=postgres`) |
+
+## Database
+
+The app supports three database backends via the `DATABASE_TYPE` env var:
+
+### `yaml` (default)
+Stores all data in a single `db.yaml` file at the app root. No dependencies required. Simple file-based persistence — the entire dataset is read on each request and written back on mutations. Suitable for single-user or development use.
+
+### `pglite`
+Uses [PGlite](https://github.com/electric-sql/pglite), an embedded PostgreSQL engine compiled to WASM. Runs in-process with no external services. Data is persisted to a `pglite-data/` directory. Tables (mirroring the YAML collections) are created automatically on first access. Enable with:
+
+```
+DATABASE_TYPE=pglite
+```
+
+### `postgres`
+Connects to an external PostgreSQL server via the `pg` package. The database and tables are created automatically on first connection (no manual schema setup required). `PGHOST`, `PGUSER`, and `PGPASSWORD` are required:
+
+```
+DATABASE_TYPE=postgres PGHOST=db.example.com PGUSER=myuser PGPASSWORD=mypass
+```
+
+Optional vars: `PGPORT` (default `5432`), `PGDATABASE` (default `fairport-ui`).
+
+### Schema
+
+All backends share the same schema: `users`, `api_keys`, `roles`, `groups_table`, `models`, `messages`, `providers`, `model_pricing`, `usage_events`. Complex fields (permissions, members) are stored as JSON (`TEXT` in PGlite, `JSONB` in PostgreSQL).
 
 ## RBAC Schema
 
