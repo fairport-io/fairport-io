@@ -1,6 +1,6 @@
 # Fairport UI
 
-Yet another chat frontend app.
+Yet another chat app.
 
 ## Usage
 
