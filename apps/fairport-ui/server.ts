@@ -29,6 +29,7 @@ const SECRET_KEY = process.env.SECRET_KEY || crypto.randomBytes(32).toString('he
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 const JWT_EXPIRY = process.env.JWT_EXPIRY || '24h';
 const CHAT_PERSISTENCE = process.env.CHAT_PERSISTENCE || 'client';
+const SIGNUPS_ENABLED = process.env.SIGNUPS_ENABLED !== 'false';
 const APP_CONFIG = {
   app_name: process.env.APP_NAME || "Chat",
   default_provider_name: process.env.DEFAULT_PROVIDER_NAME || "default",
@@ -813,6 +814,10 @@ app.post('/api/auth/signup', (req, res) => {
   // C5: apply the same rate limiter to signup to prevent account-creation spam
   if (!checkAuthRateLimit(ip)) {
     return res.status(429).json({ detail: "Too many requests. Please try again later." });
+  }
+
+  if (!SIGNUPS_ENABLED) {
+    return res.status(403).json({ detail: "Signups are disabled." });
   }
 
   const username = req.body.username?.toLowerCase();
@@ -1665,6 +1670,7 @@ app.get('/api/config', (req, res) => {
     ...safeConfig, 
     app_name: APP_CONFIG.app_name,
     chat_persistence: CHAT_PERSISTENCE,
+    signups_enabled: SIGNUPS_ENABLED,
     providers: db.providers.filter((p: any) => p.visibility === 'public').map((p: any) => {
       const { api_key, ...rest } = p;
       return rest;

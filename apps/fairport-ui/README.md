@@ -175,6 +175,7 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | `OAUTH_AUTH0_METADATA_URL` | `` | Auth0 OIDC Discovery URL |
 | `CHAT_PERSISTENCE` | `client` | Message storage mode: `client` stores in browser localStorage, `server` stores in `db.yaml` |
 | `APP_URL` | `` | Public URL of the app (used for OAuth redirect URIs; auto-detected if behind proxy) |
+| `SIGNUPS_ENABLED` | `true` | Set to `false` to disable new user registration (login unaffected) |
 | `BOOTSTRAP_ADMIN_EMAILS` | `` | Comma-separated emails granted Global Admin role on login/signup (full `*` permissions) |
 
 ## RBAC Schema

@@ -269,6 +269,7 @@ export default function App() {
     return t ? { 'Authorization': `Bearer ${t}` } : {};
   };
   const [oauthProviders, setOauthProviders] = useState<{ id: string; name: string }[]>([]);
+  const [signupsEnabled, setSignupsEnabled] = useState(true);
   const [preferences, setPreferences] = useState(() => {
     return JSON.parse(localStorage.getItem('app_preferences') || '{"advancedTelemetry":false}');
   });
@@ -384,6 +385,9 @@ export default function App() {
         }
         if (data.chat_persistence) {
           setChatPersistence(data.chat_persistence);
+        }
+        if (data.signups_enabled !== undefined) {
+          setSignupsEnabled(data.signups_enabled);
         }
         // Load providers from config
         if (data.providers && Array.isArray(data.providers)) {
@@ -1046,10 +1050,10 @@ export default function App() {
               Sign In
             </button>
             <button 
-              onClick={() => handleAuth('signup')}
-              className="w-full bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-900 dark:text-zinc-100 py-4 rounded-2xl font-bold active:scale-[0.99] transition-all"
+              onClick={signupsEnabled ? () => handleAuth('signup') : undefined}
+              className={`w-full py-4 rounded-2xl font-bold transition-all ${signupsEnabled ? 'bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-900 dark:text-zinc-100 active:scale-[0.99] cursor-pointer' : 'bg-slate-50 dark:bg-zinc-800/50 text-slate-400 dark:text-zinc-600 cursor-not-allowed'}`}
             >
-              Create New Account
+              {signupsEnabled ? 'Create New Account' : 'New Signups Disabled'}
             </button>
           </div>
 
