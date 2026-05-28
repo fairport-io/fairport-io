@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import request from 'supertest';
 
 // Must be set before importing server to prevent auto-start
@@ -169,5 +169,35 @@ describe('DELETE /api/auth/account', () => {
   it('requires auth', async () => {
     const res = await request(app).delete('/api/auth/account');
     expect(res.status).toBe(401);
+  });
+});
+
+describe('SIGNUPS_ENABLED=false', () => {
+  let disabledApp: any;
+
+  beforeAll(async () => {
+    process.env.SIGNUPS_ENABLED = 'false';
+    vi.resetModules();
+    const mod = await import('../../server');
+    disabledApp = mod.app;
+  });
+
+  afterAll(() => {
+    delete process.env.SIGNUPS_ENABLED;
+  });
+
+  it('rejects signup with 403', async () => {
+    const res = await request(disabledApp)
+      .post('/api/auth/signup')
+      .send({ username: 'blocked@example.com', password: 'password123' });
+    expect(res.status).toBe(403);
+    expect(res.body.detail).toBe('Signups are disabled.');
+  });
+
+  it('reports signups_enabled: false in config', async () => {
+    const res = await request(disabledApp)
+      .get('/api/config');
+    expect(res.status).toBe(200);
+    expect(res.body.signups_enabled).toBe(false);
   });
 });
