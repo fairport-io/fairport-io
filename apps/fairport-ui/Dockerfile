@@ -19,9 +19,9 @@ EXPOSE 8000
 USER node
 CMD ["node", "dist/server.js"]
 
-# Step 3a: Playwright Base (caches OS dependencies and browser binaries)
+# Step 3a: Playwright Base (caches OS dependencies only, independent of Playwright version)
 FROM --platform=$BUILDPLATFORM node:22-slim AS playwright-base
-RUN npx playwright@1.52.0 install --with-deps chromium && rm -rf /var/lib/apt/lists/*
+RUN npx playwright@1.52.0 install-deps chromium && rm -rf /var/lib/apt/lists/*
 
 # Step 3b: Test (native arch for fast execution)
 FROM playwright-base AS test
@@ -29,6 +29,9 @@ WORKDIR /app
 
 # Node deps — cached unless package.json changes
 COPY --from=base /app/node_modules ./node_modules
+
+# Browser binary — installed from the @playwright/test version actually in node_modules
+RUN npx playwright install chromium
 
 # Source code — invalidates on every code change
 COPY . .
