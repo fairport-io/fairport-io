@@ -26,6 +26,7 @@ Added `DATABASE_TYPE` env var to support multiple database backends:
 ### Docker & Build Fixes
 - **esbuild Bundling**: Added `--bundle` flag to the server build command in `package.json`. Along with `--packages=external`, this forces esbuild to bundle relative imports (like `./src/db/index`) into `dist/server.js` instead of leaving them as external modules that cannot be resolved in the slim production container. Removed explicit `.ts` extensions from `server.ts` relative imports to allow proper esbuild resolution.
 - **Directory Permissions**: Pre-created and chowned the `pglite-data` directory to the non-privileged `node` user in the `Dockerfile` production stage to prevent `EACCES: permission denied` errors during PGlite initialization.
+- **Playwright Test Caching**: Added an intermediate `playwright-base` stage in the `Dockerfile` that installs the specific Playwright version (`@1.52.0`) and its system/browser dependencies completely independent of the application source code or standard `package.json` updates. The `test` stage now inherits directly from this `playwright-base` stage. This avoids invalidating and reinstalling large browser and OS packages every time local package dependencies or source code files change, dramatically reducing test build times.
 
 ### Architecture
 
