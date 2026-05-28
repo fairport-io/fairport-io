@@ -100,6 +100,29 @@ victoria-logs-cluster:
 
   vector:
     enabled: true
+    # -- Example: How to ship syslog (RFC 3164 / RFC 5424) to VictoriaLogs using Vector
+    # To ingest syslog from external systems, configure a syslog source in Vector's customConfig
+    # and route it to the VictoriaLogs vlinsert Elasticsearch bulk endpoint.
+    # Make sure to also expose TCP/UDP port 5140 in Vector service configurations if needed.
+    #
+    # customConfig:
+    #   sources:
+    #     syslog_source:
+    #       type: "syslog"
+    #       address: "0.0.0.0:5140"
+    #       mode: "tcp" # or "udp"
+    #   sinks:
+    #     victoria_logs:
+    #       type: "elasticsearch"
+    #       inputs:
+    #         - "syslog_source"
+    #       # VictoriaLogs provides an Elasticsearch-compatible bulk API at /insert/elasticsearch/
+    #       endpoint: "http://vlinsert-victoria-logs-cluster:9428/insert/elasticsearch/"
+    #       # Stream fields are used by VictoriaLogs for indexing and fast filtering
+    #       query:
+    #         _stream_fields: "appname,facility,hostname,severity"
+    #         _msg_field: "message"
+    #         _time_field: "timestamp"
 
 
 victoria-traces-cluster:

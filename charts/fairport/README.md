@@ -8,16 +8,19 @@ An extremely opinionated full stack platform including everything from bare-meta
 > Don't have a Kubernetes cluster?  No problem! `curl https://get.fairport.io | sudo bash -`
 
 > [!NOTE]
-> The following command will install the latest release.  Get specific versions with: `gcloud artifacts docker images list us-docker.pkg.dev/fairport-io/gcr.io/fairport --include-tags`
+> A list of different versions you can install: https://github.com/fairport-io/fairport-io/releases/
+
+> [!NOTE]
+> The following command will install the latest released version (use specific versions by adding the `--version` flag)
 
 ```shell
-helm upgrade --install fairport oci://ghcr.io/fairport-io/fairport
+helm upgrade --install --namespace fairport --create-namespace fairport oci://gcr.io/fairport-io/fairport
 ```
 
 ## Delete
 
 ```shell
-helm delete fairport
+helm delete --namespace fairport fairport
 ```
 
 ## Default Features

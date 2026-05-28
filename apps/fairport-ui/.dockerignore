@@ -1,0 +1,5 @@
+Makefile
+Dockerfile
+node_modules
+.git
+.auth

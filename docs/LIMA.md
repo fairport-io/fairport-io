@@ -55,7 +55,16 @@ sudo apt install \
     binfmt-support \
     qemu-user-static
 ```
-## Create a Bridged VM 
+
+## Install Fairport (Optional)
+
+```
+curl https://get.fairport.io | sudo bash -
+```
+
+## Create a Bridged VM
+
+A bridged VM may be helpful for bootstrapping things like nodes in a datacenter or at a remote site.  If your VM has Fairport's stack then it has Tinkerbell which means it can start imaging machines if connected to the network!
 
 1. Install socket_vmnet: https://lima-vm.io/docs/config/network/vmnet/#socket_vmnet
 

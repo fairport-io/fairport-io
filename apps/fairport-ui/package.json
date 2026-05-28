@@ -1,0 +1,55 @@
+{
+  "name": "react-example",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx server.ts",
+    "build": "APP_NAME=${APP_NAME:-Chat} vite build && esbuild server.ts --bundle --platform=node --format=esm --outfile=dist/server.js --packages=external",
+    "preview": "vite preview",
+    "clean": "rm -rf dist",
+    "lint": "tsc --noEmit",
+    "start": "NODE_ENV=production node dist/server.js"
+  },
+  "dependencies": {
+    "@google/genai": "^1.29.0",
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/express-session": "^1.19.0",
+    "@types/js-yaml": "^4.0.9",
+    "@vitejs/plugin-react": "^5.0.4",
+    "axios": "^1.16.0",
+    "helmet": "^8.0.0",
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
+    "express-session": "^1.19.0",
+    "js-yaml": "^4.1.1",
+    "jsonwebtoken": "^9.0.3",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "vite": "^6.2.3"
+  },
+  "optionalDependencies": {
+    "@electric-sql/pglite": "^0.3.0",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "@types/bcrypt": "^5.0.2",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^22.14.0",
+    "@types/supertest": "^6.0.3",
+    "autoprefixer": "^10.4.21",
+    "esbuild": "^0.28.0",
+    "supertest": "^7.1.1",
+    "tailwindcss": "^4.1.14",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.3",
+    "vitest": "^3.1.0"
+  }
+}
