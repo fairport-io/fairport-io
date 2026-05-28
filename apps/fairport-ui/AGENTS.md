@@ -15,6 +15,47 @@
 
 ----Agents update below this line, do not remove this line----
 
+## PostgreSQL/PGlite Support (2026-05-28)
+
+Added `DATABASE_TYPE` env var to support multiple database backends:
+
+- `DATABASE_TYPE=pglite` (default): uses embedded PGlite WASM engine via `@electric-sql/pglite`
+- `DATABASE_TYPE=yaml`: stores data in `db.yaml` (existing behavior, unchanged)
+- `DATABASE_TYPE=postgres`: uses full PostgreSQL via `pg` package
+
+### Docker & Build Fixes
+- **esbuild Bundling**: Added `--bundle` flag to the server build command in `package.json`. Along with `--packages=external`, this forces esbuild to bundle relative imports (like `./src/db/index`) into `dist/server.js` instead of leaving them as external modules that cannot be resolved in the slim production container. Removed explicit `.ts` extensions from `server.ts` relative imports to allow proper esbuild resolution.
+- **Directory Permissions**: Pre-created and chowned the `pglite-data` directory to the non-privileged `node` user in the `Dockerfile` production stage to prevent `EACCES: permission denied` errors during PGlite initialization.
+- **Playwright Test Caching**: Added an intermediate `playwright-base` stage in the `Dockerfile` that installs the specific Playwright version (`@1.52.0`) and its system/browser dependencies completely independent of the application source code or standard `package.json` updates. The `test` stage now inherits directly from this `playwright-base` stage. This avoids invalidating and reinstalling large browser and OS packages every time local package dependencies or source code files change, dramatically reducing test build times.
+
+### Architecture
+
+All database operations were extracted from `server.ts` into a proper abstraction layer:
+
+- `src/db/types.ts` — TypeScript interfaces for DbData, DatabaseAdapter, and all entity types
+- `src/db/index.ts` — Factory function `createDatabase(type)` that returns the right adapter
+- `src/db/yaml-adapter.ts` — Reads/writes `db.yaml` via `js-yaml` (sync, wrapped as async)
+- `src/db/pglite-adapter.ts` — Uses `@electric-sql/pglite` with in-memory or file-backed storage; tables created on first `load()`
+- `src/db/postgres-adapter.ts` — Uses `pg` Pool; auto-creates the database and tables on first connection
+
+`server.ts` now imports `createDatabase` and uses `async loadDb()` / `async saveDb(data)` throughout.
+
+### New env vars
+- `DATABASE_TYPE` — `pglite` (default), `yaml`, or `postgres`
+- `PGHOST` — required when `DATABASE_TYPE=postgres`
+- `PGPORT` — default `5432`
+- `PGDATABASE` — default `fairport-ui`
+- `PGUSER` — required when `DATABASE_TYPE=postgres`
+- `PGPASSWORD` — required when `DATABASE_TYPE=postgres`
+
+### Dependencies
+- `@electric-sql/pglite` (optional) — PGlite adapter
+- `pg` (optional) — PostgreSQL adapter
+- Both are `optionalDependencies` in `package.json` so the app starts without them when using YAML mode
+
+### Schema
+Tables mirror the YAML collections: `users`, `api_keys`, `roles`, `groups_table` (named to avoid reserved word), `models`, `messages`, `providers`, `model_pricing`, `usage_events`. JSON fields (`permissions`, `members`, `api_keys`) stored as `TEXT` in PGlite, `JSONB` in PostgreSQL.
+
 ## Security Hardening (2026-05-27)
 
 The following security issues were identified and fixed:

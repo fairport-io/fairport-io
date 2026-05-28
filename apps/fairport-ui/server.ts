@@ -2,7 +2,6 @@
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
-import yaml from 'js-yaml';
 import crypto from 'crypto';
 import net from 'net';
 import jwt from 'jsonwebtoken';
@@ -10,6 +9,8 @@ import axios from 'axios';
 import helmet from 'helmet';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
+import { createDatabase } from './src/db/index';
+import type { DatabaseAdapter, DbData } from './src/db/index';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -168,33 +169,22 @@ function isAllowedProviderUrl(rawUrl: string): boolean {
 }
 
 
-const DB_FILE = path.join(process.cwd(), 'db.yaml');
+// --- DATABASE TYPE ---
+const DATABASE_TYPE = (process.env.DATABASE_TYPE || 'pglite') as 'yaml' | 'pglite' | 'postgres';
 
 // --- DATABASE OPERATIONS ---
-function loadDb(): any {
-  if (!fs.existsSync(DB_FILE)) {
-    const defaultDb = { users: [], api_keys: [], roles: [], groups: [], models: [], messages: [], providers: [], model_pricing: [], usage_events: [] };
-    saveDb(defaultDb);
-    return defaultDb;
-  }
-  try {
-    const fileContents = fs.readFileSync(DB_FILE, 'utf8');
-    const data: any = yaml.load(fileContents) || {};
-    ['users', 'api_keys', 'roles', 'groups', 'models', 'messages', 'providers', 'model_pricing', 'usage_events'].forEach(col => {
-      if (!data[col]) data[col] = [];
-    });
-    return data;
-  } catch (e) {
-    return { users: [], api_keys: [], roles: [], groups: [], models: [], messages: [], providers: [], model_pricing: [], usage_events: [] };
-  }
+const dbAdapter: DatabaseAdapter = createDatabase(DATABASE_TYPE);
+
+async function loadDb(): Promise<DbData> {
+  return dbAdapter.load();
 }
 
-function saveDb(data: any) {
-  fs.writeFileSync(DB_FILE, yaml.dump(data, { sortKeys: false }));
+async function saveDb(data: DbData): Promise<void> {
+  return dbAdapter.save(data);
 }
 
 // Ensure default roles and groups exist
-function ensureDefaults(db: any) {
+async function ensureDefaults(db: any) {
   // Migrate old group ID
   const oldDefault = db.groups.find((g: any) => g.id === "group-id-default");
   if (oldDefault) {
@@ -295,19 +285,19 @@ function ensureDefaults(db: any) {
       visibility: "public",
       immutable: true
     });
-    saveDb(db);
+    await saveDb(db);
   } else {
     // C4: migrate an existing plaintext immutable key to encrypted form
     // if SECRET_KEY is now set and the key is not yet encrypted.
     const immutableProvider = db.providers.find((p: any) => p.immutable === true);
     if (immutableProvider && immutableProvider.api_key && !immutableProvider.api_key.startsWith('enc:') && process.env.SECRET_KEY) {
       immutableProvider.api_key = 'enc:' + encryptProviderKey(immutableProvider.api_key, 'immutable');
-      saveDb(db);
+      await saveDb(db);
     }
   }
 }
 
-function ensureAdminForEmail(db: any, email: string) {
+async function ensureAdminForEmail(db: any, email: string) {
   if (!BOOTSTRAP_ADMIN_EMAILS.includes(email.toLowerCase())) return;
   const user = db.users.find((u: any) => u.name.toLowerCase() === email.toLowerCase());
   if (!user) return;
@@ -316,7 +306,7 @@ function ensureAdminForEmail(db: any, email: string) {
   const existingMember = adminGroup.members.find((m: any) => m.ids.includes(user.id));
   if (!existingMember) {
     adminGroup.members.push({ ids: [user.id], role_ids: ["role-id-global-admin"] });
-    saveDb(db);
+    await saveDb(db);
   }
   // Also add to default group
   const defaultGroup = db.groups.find((g: any) => g.id === "default");
@@ -324,7 +314,7 @@ function ensureAdminForEmail(db: any, email: string) {
     const inDefault = defaultGroup.members.some((m: any) => m.ids.includes(user.id));
     if (!inDefault) {
       defaultGroup.members.push({ ids: [user.id], role_ids: ["role-id-default"] });
-      saveDb(db);
+      await saveDb(db);
     }
   }
 }
@@ -674,7 +664,7 @@ setInterval(() => {
 // --- RBAC CORE ---
 async function getAuthContext(req: Request) {
   const authHeader = req.headers.authorization;
-  const db = loadDb();
+  const db = await loadDb();
   
   let user = null;
   let apiKey = null;
@@ -695,7 +685,7 @@ async function getAuthContext(req: Request) {
             if (keyFound) {
               apiKey = keyFound;
               apiKey.last_used_at = Math.floor(Date.now() / 1000);
-              saveDb(db);
+              await saveDb(db);
             }
           }
           return { user, db, apiKey };
@@ -714,7 +704,7 @@ async function getAuthContext(req: Request) {
         if (user) {
           apiKey = keyFound;
           apiKey.last_used_at = Math.floor(Date.now() / 1000);
-          saveDb(db);
+          await saveDb(db);
         }
       }
     }
@@ -763,7 +753,7 @@ app.post('/api/auth/login', async (req, res) => {
 
   const username = req.body.username?.toLowerCase();
   const password = req.body.password;
-  const db = loadDb();
+  const db = await loadDb();
 
   const user = db.users.find((u: any) => u.name.toLowerCase() === username);
 
@@ -800,17 +790,17 @@ app.post('/api/auth/login', async (req, res) => {
       last_used_at: null
     };
     db.api_keys.push(keyEntry);
-    saveDb(db);
+    await saveDb(db);
     newKey = rawKey;
   }
 
-  ensureAdminForEmail(db, user.name);
+  await ensureAdminForEmail(db, user.name);
 
   const token = signJwt(user);
   res.json({ token, user: { id: user.id, name: user.name }, api_key: newKey });
 });
 
-app.post('/api/auth/signup', (req, res) => {
+app.post('/api/auth/signup', async (req, res) => {
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
   // C5: apply the same rate limiter to signup to prevent account-creation spam
   if (!checkAuthRateLimit(ip)) {
@@ -826,7 +816,7 @@ app.post('/api/auth/signup', (req, res) => {
   if (!username || !password || password.length < 8) {
     return res.status(400).json({ detail: "Invalid data" });
   }
-  const db = loadDb();
+  const db = await loadDb();
   if (db.users.some((u: any) => u.name.toLowerCase() === username)) {
     return res.status(409).json({ detail: "User exists" });
   }
@@ -850,10 +840,10 @@ app.post('/api/auth/signup', (req, res) => {
     expires_at: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60),
     last_used_at: null
   });
-  
-  saveDb(db);
+
+  await saveDb(db);
   const newUser = db.users.find((u: any) => u.id === userId);
-  ensureAdminForEmail(db, newUser.name);
+  await ensureAdminForEmail(db, newUser.name);
   const token = signJwt(newUser);
   res.json({ token, user: { id: newUser.id, name: newUser.name }, api_key: rawKey });
 });
@@ -897,7 +887,7 @@ app.delete('/api/auth/account', async (req, res) => {
   // Delete the user
   db.users = db.users.filter((u: any) => u.id !== userId);
 
-  saveDb(db);
+  await saveDb(db);
 
   res.json({ status: "success" });
 });
@@ -1019,7 +1009,7 @@ app.get('/api/auth/oauth/callback', async (req, res) => {
       return res.status(400).send("Could not determine user identity from provider");
     }
 
-    const db = loadDb();
+    const db = await loadDb();
     let user = db.users.find((u: any) => u.name === email);
 
     if (!user) {
@@ -1043,7 +1033,7 @@ app.get('/api/auth/oauth/callback', async (req, res) => {
         last_used_at: null
       });
 
-      saveDb(db);
+      await saveDb(db);
     }
 
     const token = signJwt(user);
@@ -1146,7 +1136,7 @@ app.post('/api/keys', async (req, res) => {
   };
   
   db.api_keys.push(entry);
-  saveDb(db);
+  await saveDb(db);
   res.json({ ...entry, key: rawKey, key_hash: "********" });
 });
 
@@ -1164,7 +1154,7 @@ app.delete('/api/keys/:id', async (req, res) => {
   if (keyIndex === -1) return res.status(404).json({ detail: "Key not found" });
   
   db.api_keys.splice(keyIndex, 1);
-  saveDb(db);
+  await saveDb(db);
   res.json({ status: "success" });
 });
 
@@ -1262,7 +1252,7 @@ app.post('/api/providers', async (req, res) => {
     }
   }
 
-  saveDb(db);
+  await saveDb(db);
   res.json(entry);
 });
 
@@ -1324,8 +1314,8 @@ app.put('/api/providers/:id', async (req, res) => {
       });
     }
   }
-  
-  saveDb(db);
+
+  await saveDb(db);
   res.json(provider);
 });
 
@@ -1351,7 +1341,7 @@ app.delete('/api/providers/:id', async (req, res) => {
   }
   
   db.providers.splice(providerIndex, 1);
-  saveDb(db);
+  await saveDb(db);
   res.json({ status: "success" });
 });
 
@@ -1475,7 +1465,7 @@ app.post('/api/groups/:slug/members', async (req, res) => {
   const alreadyMember = group.members.some((m: any) => m.ids.includes(user_id));
   if (!alreadyMember) {
     group.members.push({ ids: [user_id], role_ids: ["role-id-default"] });
-    saveDb(db);
+    await saveDb(db);
   }
 
   res.json({ status: "success" });
@@ -1495,7 +1485,7 @@ app.delete('/api/groups/:slug/members/:userId', async (req, res) => {
     member.ids = member.ids.filter((id: string) => id !== userId);
   }
   group.members = group.members.filter((m: any) => m.ids.length > 0);
-  saveDb(db);
+  await saveDb(db);
 
   res.json({ status: "success" });
 });
@@ -1538,7 +1528,7 @@ app.delete('/api/admin/users/:userId/keys/:keyId', async (req, res) => {
   const idx = db.api_keys.findIndex((k: any) => k.id === req.params.keyId && k.owner_id === req.params.userId);
   if (idx === -1) return res.status(404).json({ detail: "Key not found" });
   db.api_keys.splice(idx, 1);
-  saveDb(db);
+  await saveDb(db);
   res.json({ status: "success" });
 });
 
@@ -1551,7 +1541,7 @@ app.delete('/api/admin/users/:userId/providers/:providerId', async (req, res) =>
   const idx = db.providers.findIndex((p: any) => p.id === req.params.providerId && p.owner_id === req.params.userId);
   if (idx === -1) return res.status(404).json({ detail: "Provider not found" });
   db.providers.splice(idx, 1);
-  saveDb(db);
+  await saveDb(db);
   res.json({ status: "success" });
 });
 
@@ -1573,7 +1563,7 @@ app.delete('/api/admin/users/:userId', async (req, res) => {
   db.usage_events = db.usage_events.filter((e: any) => !userKeyIds.includes(e.api_key_id));
   db.api_keys = db.api_keys.filter((k: any) => k.owner_id !== targetUserId);
   db.users = db.users.filter((u: any) => u.id !== targetUserId);
-  saveDb(db);
+  await saveDb(db);
   res.json({ status: "success" });
 });
 
@@ -1591,7 +1581,7 @@ app.delete('/api/admin/users/:userId/groups/:groupSlug', async (req, res) => {
     member.ids = member.ids.filter((id: string) => id !== userId);
   }
   group.members = group.members.filter((m: any) => m.ids.length > 0);
-  saveDb(db);
+  await saveDb(db);
 
   res.json({ status: "success" });
 });
@@ -1659,13 +1649,13 @@ app.delete('/api/messages', async (req, res) => {
     return res.json({ status: "success" });
   }
   db.messages = db.messages.filter((m: any) => m.user_id !== user.id);
-  saveDb(db);
+  await saveDb(db);
   res.json({ status: "success" });
 });
 
 // --- CHAT LOGIC ---
-app.get('/api/config', (req, res) => {
-  const db = loadDb();
+app.get('/api/config', async (req, res) => {
+  const db = await loadDb();
   const { api_key, ...safeConfig } = APP_CONFIG;
   res.json({ 
     ...safeConfig, 
@@ -1790,7 +1780,7 @@ app.post('/api/chat/stream', async (req, res) => {
       content: userMsg.content,
       timestamp: Date.now()
     });
-    saveDb(db);
+    await saveDb(db);
   }
 
   let assistantContent = "";
@@ -1844,7 +1834,7 @@ app.post('/api/chat/stream', async (req, res) => {
       responseType: 'stream'
     });
 
-    response.data.on('data', (chunk: Buffer) => {
+    response.data.on('data', async (chunk: Buffer) => {
       const lines = chunk.toString().split('\n');
       for (const line of lines) {
         if (!line.trim() || !line.startsWith('data: ')) continue;
@@ -1877,7 +1867,7 @@ app.post('/api/chat/stream', async (req, res) => {
             output_tokens: outputTokens,
             source: 'UI',
           });
-          saveDb(db);
+          await saveDb(db);
           const duration = Date.now() - startTime;
           const tps = duration > 0 ? (outputTokens / (duration / 1000)).toFixed(2) : '0';
           const responseTime = duration;
@@ -2074,7 +2064,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
       output_tokens: outputTokens,
       source: 'API',
     });
-    saveDb(db);
+    await saveDb(db);
 
     res.json({
       id: requestId,
@@ -2162,9 +2152,9 @@ app.get('/api/usage', async (req, res) => {
 let server: ReturnType<typeof app.listen> | null = null;
 
 async function startServer() {
-  const db = loadDb();
-  ensureDefaults(db);
-  saveDb(db);
+  const db = await loadDb();
+  await ensureDefaults(db);
+  await saveDb(db);
 
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
@@ -2220,7 +2210,9 @@ if (process.env.NODE_ENV !== 'test') {
   startServer();
 } else {
   // Initialize DB defaults for tests without starting the HTTP server
-  const db = loadDb();
-  ensureDefaults(db);
-  saveDb(db);
+  (async () => {
+    const db = await loadDb();
+    await ensureDefaults(db);
+    await saveDb(db);
+  })();
 }

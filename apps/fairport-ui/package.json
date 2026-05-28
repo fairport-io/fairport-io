@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "APP_NAME=${APP_NAME:-Chat} vite build && esbuild server.ts --platform=node --format=esm --outfile=dist/server.js --packages=external",
+    "build": "APP_NAME=${APP_NAME:-Chat} vite build && esbuild server.ts --bundle --platform=node --format=esm --outfile=dist/server.js --packages=external",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
@@ -31,6 +31,10 @@
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "vite": "^6.2.3"
+  },
+  "optionalDependencies": {
+    "@electric-sql/pglite": "^0.3.0",
+    "pg": "^8.13.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",

@@ -177,6 +177,27 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | `APP_URL` | `` | Public URL of the app (used for OAuth redirect URIs; auto-detected if behind proxy) |
 | `SIGNUPS_ENABLED` | `true` | Set to `false` to disable new user registration (login unaffected) |
 | `BOOTSTRAP_ADMIN_EMAILS` | `` | Comma-separated emails granted Global Admin role on login/signup (full `*` permissions) |
+| `TRUST_PROXY` | `` | Set to `1` (or a number/string) to enable reverse-proxy IP trust for correct client IP detection |
+| `AUTH_RATE_LIMIT_MAX` | `10` | Max failed auth attempts per IP before rate limiting kicks in |
+| `AUTH_RATE_LIMIT_WINDOW_MS` | `900000` (15 min) | Auth rate limit sliding window in milliseconds |
+| `DATABASE_TYPE` | `pglite` | Database backend: `pglite` (embedded WASM), `yaml` (file-based), or `postgres` (full PostgreSQL) |
+| `PGHOST` | `` | PostgreSQL host (required when `DATABASE_TYPE=postgres`) |
+| `PGPORT` | `5432` | PostgreSQL port |
+| `PGDATABASE` | `fairport-ui` | PostgreSQL database name |
+| `PGUSER` | `` | PostgreSQL user (required when `DATABASE_TYPE=postgres`) |
+| `PGPASSWORD` | `` | PostgreSQL password (required when `DATABASE_TYPE=postgres`) |
+
+## Database
+
+Controlled by `DATABASE_TYPE` env var. All backends share the same schema: `users`, `api_keys`, `roles`, `groups_table`, `models`, `messages`, `providers`, `model_pricing`, `usage_events`.
+
+| Backend    | Type            | Dependencies           | Persistence        | Required Environment Variables |
+|------------|-----------------|------------------------|--------------------|--------------------------------|
+| `pglite`   | Embedded WASM   | none (embedded pglite) | `pglite-data/` dir | None (Default)                 |
+| `yaml`     | File-based      | none                   | `db.yaml`          | `DATABASE_TYPE=yaml`           |
+| `postgres` | External server | Postgres server        | Postgres server    | `DATABASE_TYPE=postgres`, `PGHOST`, `PGUSER`, `PGPASSWORD` |
+
+JSON fields stored as `TEXT` in PGlite, `JSONB` in PostgreSQL. Database and tables created automatically on first connection (PostgreSQL) or first access (PGlite). Optional Postgres vars: `PGPORT` (5432), `PGDATABASE` (fairport-ui).
 
 ## RBAC Schema
 
