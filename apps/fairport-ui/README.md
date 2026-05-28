@@ -194,7 +194,7 @@ Controlled by `DATABASE_TYPE` env var. All backends share the same schema: `user
 | Backend    | Type            | Dependencies           | Persistence        | Required Environment Variables |
 |------------|-----------------|------------------------|--------------------|--------------------------------|
 | `yaml`     | File-based      | none                   | `db.yaml`          | None (Default)                 |
-| `pglite`   | Embedded WASM   | `@electric-sql/pglite` | `pglite-data/` dir | `DATABASE_TYPE=pglite`         |
+| `pglite`   | Embedded WASM   | none (embedded pglite) | `pglite-data/` dir | `DATABASE_TYPE=pglite`         |
 | `postgres` | External server | Postgres server        | Postgres server    | `DATABASE_TYPE=postgres`, `PGHOST`, `PGUSER`, `PGPASSWORD` |
 
 JSON fields stored as `TEXT` in PGlite, `JSONB` in PostgreSQL. Database and tables created automatically on first connection (PostgreSQL) or first access (PGlite). Optional Postgres vars: `PGPORT` (5432), `PGDATABASE` (fairport-ui).
