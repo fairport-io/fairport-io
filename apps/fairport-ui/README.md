@@ -60,6 +60,10 @@ Allow or deny users and groups access to models, providers, etc.
 
 <img width="1016" height="576" alt="image" src="https://github.com/user-attachments/assets/73d41bbe-511b-4b99-b7e2-644c3054ceb2" />
 
+### White-Label
+
+Use custom colors and logos - configured via [Environment Variables](#environment-ariables)
+
 ## Features
 
 | Category | Feature |
