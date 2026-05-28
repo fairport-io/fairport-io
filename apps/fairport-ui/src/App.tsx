@@ -161,9 +161,13 @@ type Theme = 'light' | 'dark' | 'system';
 let APP_NAME = 'Chat'; // Will be updated from server config
 const MAX_INPUT_TOKENS = 100000;
 const estimateTokens = (text: string) => Math.ceil(text.length / 4);
-// L3: crypto.randomUUID() is available in all modern browsers and Node.js 14.17+.
-// The Math.random() fallback was removed as it is not cryptographically secure.
-const genId = () => crypto.randomUUID();
+const genId = () => {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return 'id-' + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+  }
+};
 const copyToClipboard = async (text: string) => {
   if (!navigator.clipboard) {
     const ta = document.createElement('textarea');
