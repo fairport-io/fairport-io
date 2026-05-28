@@ -12,7 +12,7 @@ WORKDIR /app
 COPY --from=base /app/dist ./dist
 COPY --from=base /app/package*.json ./
 COPY --from=base /app/node_modules ./node_modules
-RUN touch db.yaml && chown node:node db.yaml
+RUN touch db.yaml && mkdir -p pglite-data && chown -R node:node db.yaml pglite-data
 ENV NODE_ENV=production
 ENV PORT=8000
 EXPOSE 8000

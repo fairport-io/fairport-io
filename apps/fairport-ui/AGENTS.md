@@ -23,6 +23,10 @@ Added `DATABASE_TYPE` env var to support multiple database backends:
 - `DATABASE_TYPE=pglite`: uses embedded PGlite WASM engine via `@electric-sql/pglite`
 - `DATABASE_TYPE=postgres`: uses full PostgreSQL via `pg` package
 
+### Docker & Build Fixes
+- **esbuild Bundling**: Added `--bundle` flag to the server build command in `package.json`. Along with `--packages=external`, this forces esbuild to bundle relative imports (like `./src/db/index`) into `dist/server.js` instead of leaving them as external modules that cannot be resolved in the slim production container. Removed explicit `.ts` extensions from `server.ts` relative imports to allow proper esbuild resolution.
+- **Directory Permissions**: Pre-created and chowned the `pglite-data` directory to the non-privileged `node` user in the `Dockerfile` production stage to prevent `EACCES: permission denied` errors during PGlite initialization.
+
 ### Architecture
 
 All database operations were extracted from `server.ts` into a proper abstraction layer:
