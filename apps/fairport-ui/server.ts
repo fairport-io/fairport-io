@@ -9,8 +9,8 @@ import axios from 'axios';
 import helmet from 'helmet';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
-import { createDatabase } from './src/db/index.ts';
-import type { DatabaseAdapter, DbData } from './src/db/index.ts';
+import { createDatabase } from './src/db/index';
+import type { DatabaseAdapter, DbData } from './src/db/index';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
