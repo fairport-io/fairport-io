@@ -191,11 +191,11 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 
 Controlled by `DATABASE_TYPE` env var. All backends share the same schema: `users`, `api_keys`, `roles`, `groups_table`, `models`, `messages`, `providers`, `model_pricing`, `usage_events`.
 
-| Backend | Type | Dependencies | Persistence | Required Config |
-|---------|------|-------------|-------------|-----------------|
-| `yaml` | File-based | none | `db.yaml` | — |
-| `pglite` | Embedded WASM | `@electric-sql/pglite` | `pglite-data/` dir | `DATABASE_TYPE=pglite` |
-| `postgres` | External server | `pg` | PostgreSQL server | `PGHOST`, `PGUSER`, `PGPASSWORD` |
+| Backend    | Type            | Dependencies           | Persistence        | Required Environment Variables |
+|------------|-----------------|------------------------|--------------------|--------------------------------|
+| `yaml`     | File-based      | none                   | `db.yaml`          | None (Default)                 |
+| `pglite`   | Embedded WASM   | `@electric-sql/pglite` | `pglite-data/` dir | `DATABASE_TYPE=pglite`         |
+| `postgres` | External server | Postgres server        | Postgres server    | `DATABASE_TYPE=postgres`, `PGHOST`, `PGUSER`, `PGPASSWORD` |
 
 JSON fields stored as `TEXT` in PGlite, `JSONB` in PostgreSQL. Database and tables created automatically on first connection (PostgreSQL) or first access (PGlite). Optional Postgres vars: `PGPORT` (5432), `PGDATABASE` (fairport-ui).
 
