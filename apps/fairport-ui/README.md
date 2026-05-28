@@ -15,6 +15,51 @@ docker run -it --rm -p 8000:8000 \
   ghcr.io/fairport-io/apps/chat-frontend:0.0.1
 ```
 
+## Highlights
+
+### Auth
+
+Local DB or OIDC integration
+
+<img width="1016" height="576" alt="image" src="https://github.com/user-attachments/assets/7931e63b-12f2-41b4-97c1-4f9bd9ea472b" />
+
+### Chat Interface
+
+See advanced telemetry (ttft, tokens/sec), and watch the model think in real time.
+
+<img width="1016" height="576" alt="image" src="https://github.com/user-attachments/assets/041d5062-0855-4f20-a0e0-10e536dbe0c0" />
+
+### API
+
+Generate API Keys
+
+<img width="1016" height="576" alt="image" src="https://github.com/user-attachments/assets/bf5acdff-2cb2-4add-8a02-0f48f48c9307" />
+
+### Providers
+
+Manage custom providers
+
+<img width="1016" height="576" alt="image" src="https://github.com/user-attachments/assets/959fddd4-0545-44d0-882f-4363aaebdf3c" />
+
+### Usage
+
+View usage and billing details
+
+
+<img width="1016" height="576" alt="image" src="https://github.com/user-attachments/assets/7e8753a5-4b58-4c49-b507-38eb60febc42" />
+
+### Deployments
+
+Manage deployments, and create a fleet of servers
+
+<img width="1016" height="576" alt="image" src="https://github.com/user-attachments/assets/9a6f3144-ae77-4356-b6f5-5e4df4e63a08" />
+
+### Groups/Organization
+
+Allow or deny users and groups access to models, providers, etc.
+
+<img width="1016" height="576" alt="image" src="https://github.com/user-attachments/assets/73d41bbe-511b-4b99-b7e2-644c3054ceb2" />
+
 ## Features
 
 | Category | Feature |
