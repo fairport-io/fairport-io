@@ -72,7 +72,7 @@ helmfile:
     namespace: cert-manager
     createNamespace: true
     chart: oci://ghcr.io/fairport-io/charts/cert-manager
-    version: 0.3.0
+    version: 1.19.1
     atomic: true
     wait: true
     needs: [ "openebs/openebs" ]
@@ -161,23 +161,12 @@ helmfile:
   ################
   # Provisioning #
   ################
-  # Replacing tinkerbell with provisioning
-  - name: tinkerbell
-    installed: false
-    namespace: tinkerbell
-    createNamespace: true
-    chart: oci://ghcr.io/fairport-io/charts/tinkerbell
-    version: 1.0.0
-    atomic: true
-    wait: true
-    needs: [ "slurm/slurm" ]
-    values: [ "helmfile-values.yaml.gotmpl" ]
   - name: provisioning
     installed: true
     namespace: provisioning
     createNamespace: true
     chart: oci://ghcr.io/fairport-io/charts/provisioning
-    version: 0.3.0
+    version: 1.0.0
     atomic: true
     wait: true
     needs: [ "slurm/slurm" ]

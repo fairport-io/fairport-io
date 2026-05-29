@@ -17,7 +17,7 @@ DOCKERFILE         ?= Dockerfile
 CI_API_V4_URL      ?=
 CI_PROJECT_ID      ?=
 CI_JOB_TOKEN       ?=
-OVERWRITE_ARTIFACT ?=
+OVERWRITE_ARTIFACT ?= true
 
 .PHONY: all build test deploy clean scaffold
 
