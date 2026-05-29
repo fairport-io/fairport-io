@@ -38,9 +38,7 @@ data:
   helmfile.yaml: |
     {{- .Values.helmfile | toYaml | nindent 4 }}
   values.yaml: |
-    {{ if .Values.values }}
-    {{ .Values.values | toJson }}
-    {{ end }}
+    {{ omit .Values "fairport" "helmfile" | toJson }}
   helmfile-values.yaml.gotmpl: |
     {{ `{{- $allValues := (readFile "values.yaml" | fromYaml) -}}` }}
     {{ `{{- if hasKey $allValues .Release.Name -}}` }}
