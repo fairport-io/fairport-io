@@ -66,5 +66,4 @@ jobs:
           production-stack-operator:
             enabled: false
         EOF
-        cat $FAIRPORT_CONFIG_FILE
         curl https://get.fairport.io | sudo -E bash -
