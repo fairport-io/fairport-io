@@ -67,7 +67,7 @@ kubeai:
     persistence:
       enabled: false
 resourceprofileManager:
-  enabled: true
+  enabled: false
   name: kubeai-resourceprofile-manager
   replicas: 1
   image: ghcr.io/fairport-io/apps/kubeai-resourceprofile-manager:0.0.1
