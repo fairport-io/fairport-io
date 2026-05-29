@@ -34,7 +34,7 @@ tinkerbell:
 # Installs workflow and template objects when helm runs
 tinkerbell-object-installer:
   enabled: true
-  image: ghcr.io/fairport-io/alpine/kubectl:1.34.1
+  image: ghcr.io/fairport-io/apps/alpine/kubectl:1.34.1
   tinkerbellMachineInstallerImage: ghcr.io/fairport-io/apps/fairport-tinkerbell-tools:0.0.1
   env: []
   affinity:
@@ -50,7 +50,7 @@ tinkerbell-object-installer:
 # Manages objects after helm runs
 tinkerbell-object-manager:
   enabled: true
-  image: ghcr.io/fairport-io/alpine/kubectl:1.34.1
+  image: ghcr.io/fairport-io/apps/alpine/kubectl:1.34.1
   env: []
   affinity:
     podAffinity:

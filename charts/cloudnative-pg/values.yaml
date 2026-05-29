@@ -5,7 +5,7 @@ cloudnative-pg:
   tolerations: []
 
 pg-cluster-installer:
-  image: ghcr.io/fairport-io/alpine/kubectl:1.34.1
+  image: ghcr.io/fairport-io/apps/alpine/kubectl:1.34.1
   nodeSelector: {}
   tolerations: []
   clusters:
