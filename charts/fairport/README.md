@@ -53,3 +53,4 @@ helm delete --namespace fairport fairport
 | [GPU](#gpu) 🚀                       | ✅ Enabled     | [nvidia-gpu-operator](../nvidia-gpu-operator/README.md)             | Installs, manages, and updates nvidia components (device plugin, exporter, etc.) |
 | [GPU](#gpu) 🚀                       | ❌ Disabled    | [amd-gpu-operator](../amd-gpu-operator/README.md)                   | Installs, manages, and updates amd components (device plugin, exporter, etc.) |
 | [Database](#database) 🗄️             | ✅ Enabled     | [cloudnative-pg](../cloudnative-pg/README.md)                       | A Kubernetes native implementation of Postgres with high availability and speed optimizations |
+

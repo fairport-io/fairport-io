@@ -17,3 +17,4 @@ A fairport tuned and vendored version of [cert-manager](https://cert-manager.io)
 | Artifact                      | oci://ghcr.io/fairport-io/charts/cert-manager |
 
 
+
