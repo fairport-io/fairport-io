@@ -6,7 +6,7 @@ on:
     branches: [ main ]
 
 jobs:
-  on-pull-request:
+  build-and-test:
     runs-on: ubuntu-latest
     steps:
 
@@ -52,4 +52,5 @@ jobs:
         done
 
   kube-integration-test:
+    needs: build-and-test 
     uses: ./.github/workflows/kube-integration-test.yml
