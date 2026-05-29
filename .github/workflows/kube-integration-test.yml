@@ -1,0 +1,36 @@
+name: Kubernetes Integration Test
+
+on:
+  workflow_call:
+
+jobs:
+  kube-integration-test:
+    name: Kubernetes Integration Test
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Create Kubernetes Cluster
+      shell: bash {0}
+      run: |
+        mkdir -p /opt/fairport
+        export FAIRPORT_CONFIG_FILE=/opt/fairport/fp-values.yaml
+        cat << EOF > $FAIRPORT_CONFIG_FILE
+        kube-vip:
+          kube-vip:
+            enabled: false
+        cert-manager:
+          cert-manager:
+            enabled: false
+        cloudnative-pg:
+          cloudnative-pg:
+            enabled: false
+        monitoring:
+          kube-prometheus-stack:
+            enabled: false 
+        EOF
+        curl https://get.fairport.io | sudo -E bash -

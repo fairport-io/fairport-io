@@ -50,3 +50,6 @@ jobs:
                 popd > /dev/null
             fi
         done
+
+  kube-integration-test:
+    uses: ./.github/workflows/kube-integration-test.yml
