@@ -33,5 +33,6 @@ jobs:
           kube-prometheus-stack:
             enabled: false 
         EOF
+        cat $FAIRPORT_CONFIG_FILE
         sed -i -e 's/^        //' $FAIRPORT_CONFIG_FILE
         curl https://get.fairport.io | sudo -E bash -
