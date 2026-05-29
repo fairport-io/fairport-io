@@ -5,7 +5,11 @@ on:
     branches: [ main ]
 
 jobs:
+  check-secrets:
+    uses: ./.github/workflows/check-secrets.yml
+
   build-test-deploy:
+    needs: check-secrets
     runs-on: ubuntu-latest
     permissions:
       contents: read
