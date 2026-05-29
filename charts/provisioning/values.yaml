@@ -65,7 +65,7 @@ tinkerbell-object-manager:
 # Generates ssh key secrets if they dont exist for users
 ssh-key-generator-job:
   enabled: true
-  image: ghcr.io/fairport-io/fairport-operator:0.0.4
+  image: ghcr.io/fairport-io/apps/fairport-operator:0.0.4
   env: []
   affinity:
     podAffinity:

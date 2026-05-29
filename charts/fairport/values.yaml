@@ -18,7 +18,7 @@ fairport:
     enabled: true
     name: fairport-operator
     replicas: 1
-    image: ghcr.io/fairport-io/fairport-operator:0.0.4
+    image: ghcr.io/fairport-io/apps/fairport-operator:0.0.4
     imagePullPolicy: IfNotPresent
     serviceAccount:
       name: fairport-operator
