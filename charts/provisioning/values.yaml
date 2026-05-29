@@ -80,7 +80,7 @@ ssh-key-generator-job:
 # Caches OS images for PXE installation
 os-image-cache:
   enabled: true
-  image: ghcr.io/fairport-io/fairport-tinkerbell-tools:0.0.1
+  image: ghcr.io/fairport-io/apps/fairport-tinkerbell-tools:0.0.1
   hostNetwork: true
   service:  {}
     #type: LoadBalancer
