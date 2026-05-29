@@ -26,12 +26,45 @@ jobs:
         cert-manager:
           cert-manager:
             enabled: false
-        cloudnative-pg:
-          cloudnative-pg:
-            enabled: false
         monitoring:
           kube-prometheus-stack:
             enabled: false 
+        rancher:
+          rancher:
+            enabled: false
+        kyverno:
+          kyverno:
+            enabled: false
+        mpi-operator:
+          mpi-operator:
+            enabled: false
+        slurm-operator:
+          slurm-operator:
+            enabled: false
+        kueue:
+          kueue:
+            enabled: false
+        slurm:
+          slurm:
+            enabled: false
+        provisioning:
+          tinkerbell:
+            enabled: false
+        nvidia-gpu-operator:
+          nvidia-gpu-operator:
+            enabled: false
+        amd-gpu-operator:
+          amd-gpu-operator:
+            enabled: false
+        cloudnative-pg:
+          cloudnative-pg:
+            enabled: false
+        kubeai:
+          kubeai:
+            enabled: false
+        production-stack-operator:
+          production-stack-operator:
+            enabled: false
         EOF
         cat $FAIRPORT_CONFIG_FILE
         curl https://get.fairport.io | sudo -E bash -
