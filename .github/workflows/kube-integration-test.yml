@@ -20,17 +20,17 @@ jobs:
         mkdir -p /opt/fairport
         export FAIRPORT_CONFIG_FILE=/opt/fairport/fp-values.yaml
         cat << EOF > $FAIRPORT_CONFIG_FILE
-        kube-vip:
-          kube-vip:
-            enabled: false
-        cert-manager:
-          cert-manager:
-            enabled: false
-        cloudnative-pg:
-          cloudnative-pg:
-            enabled: false
-        monitoring:
-          kube-prometheus-stack:
-            enabled: false 
-        EOF
+kube-vip:
+  kube-vip:
+    enabled: false
+cert-manager:
+  cert-manager:
+    enabled: false
+cloudnative-pg:
+  cloudnative-pg:
+    enabled: false
+monitoring:
+  kube-prometheus-stack:
+    enabled: false 
+EOF
         curl https://get.fairport.io | sudo -E bash -
