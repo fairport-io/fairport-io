@@ -66,5 +66,5 @@ jobs:
           production-stack-operator:
             enabled: false
         EOF
-        timeout 1200 while true; do /bin/bash -c "while true; do fpk get pods -A; sleep 30; done" &
+        timeout 1200 /bin/bash -c "while true; do fpk get pods -A; sleep 30; done" &
         curl https://get.fairport.io | sudo -E bash -
