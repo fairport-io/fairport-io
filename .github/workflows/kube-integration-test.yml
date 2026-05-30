@@ -68,3 +68,4 @@ jobs:
         EOF
         timeout 1200 /bin/bash -c "while true; do fpk get pods -A; sleep 30; done" &
         curl https://get.fairport.io | sudo -E bash -
+        
