@@ -182,7 +182,7 @@ helmfile:
     version: 26.3.1
     atomic: true
     wait: true
-    needs: [ "provisioning/provisioning" ]
+    needs: [ "monitoring/monitoring", "provisioning/provisioning", "slurm/slurm" ]
     values:
     - nvidia-gpu-operator:
         toolkit:
@@ -198,7 +198,7 @@ helmfile:
     version: 1.5.0
     atomic: true
     wait: true
-    needs: [ "provisioning/provisioning" ]
+    needs: [ "monitoring/monitoring", "provisioning/provisioning", "slurm/slurm" ]
     values: [ "helmfile-values.yaml.gotmpl" ]
   ############
   # Database #
