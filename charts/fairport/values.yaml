@@ -115,16 +115,6 @@ helmfile:
     wait: true
     needs: [ "monitoring/monitoring" ]
     values: [ "helmfile-values.yaml.gotmpl" ]
-  - name: system-upgrade-controller
-    installed: true
-    namespace: system-upgrade
-    createNamespace: true
-    chart: oci://ghcr.io/fairport-io/charts/system-upgrade-controller
-    version: 0.13.4
-    atomic: true
-    wait: true
-    needs: [ "monitoring/monitoring" ]
-    values: [ "helmfile-values.yaml.gotmpl" ]
   ##################
   # Job Scheduling #
   ##################
@@ -177,6 +167,16 @@ helmfile:
     createNamespace: true
     chart: oci://ghcr.io/fairport-io/charts/provisioning
     version: 1.0.0
+    atomic: true
+    wait: true
+    needs: [ "slurm/slurm" ]
+    values: [ "helmfile-values.yaml.gotmpl" ]
+  - name: system-upgrade-controller
+    installed: true
+    namespace: system-upgrade
+    createNamespace: true
+    chart: oci://ghcr.io/fairport-io/charts/system-upgrade-controller
+    version: 0.13.4
     atomic: true
     wait: true
     needs: [ "slurm/slurm" ]
