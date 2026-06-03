@@ -6,19 +6,22 @@ Helm chart for Rancher's System Upgrade Controller to coordinate and automate ro
 
 To perform a rolling upgrade of your cluster nodes, you define `Plan` custom resources. It is recommended to upgrade control-plane (server) nodes first sequentially, and then upgrade agent (worker) nodes.
 
-### 1. Upgrade Server Nodes (Control Plane)
+## Upgrade Server Nodes (Control Plane)
 
-Create a file named `upgrade-servers.yaml` with the target `version` (e.g., `v1.36.1+rke2r2`):
+Create the server plan:
 
-```yaml
+```shell
+SERVER_PLAN=$(
+cat << EOF
 apiVersion: upgrade.cattle.io/v1
 kind: Plan
 metadata:
   name: rke2-server-plan
   namespace: system-upgrade
 spec:
-  version: v1.36.1+rke2r2  # Target RKE2 version
-  concurrency: 1          # Upgrade servers one-by-one
+  version: $VERSION                         # Set the desired RKE2 version for the nodes, e.g. "v1.24.8+rke2r1"
+  concurrency: 1                            # Leave this as 1 for servers
+  serviceAccountName: system-upgrade
   nodeSelector:
     matchExpressions:
       - key: node-role.kubernetes.io/control-plane
@@ -27,31 +30,42 @@ spec:
   drain:
     force: true
     ignoreDaemonSets: true
+    deleteLocalData: true
+    disableEviction: true
+    timeout: 185s                           # Ensure your applications can shut down within this time, adjust if necessary
   upgrade:
     image: rancher/rke2-upgrade
+    envs:
+      - name: SYSTEMD_DIR
+        value: /etc/systemd/system          # This is specifically for Ubuntu nodes, may be different for other OS types
+EOF
+)
 ```
 
-Apply the plan to the cluster:
+Apply the server plan:
 ```shell
-fpk apply -f upgrade-servers.yaml
+echo "$SERVER_PLAN" | fpk apply -f -
 ```
 
-### 2. Upgrade Agent Nodes (Workers)
+## Upgrade Agent Nodes (Workers)
 
-Once the server nodes have completed upgrading, create `upgrade-agents.yaml`:
+Once the server nodes have completed upgrading, create the agent plan:
 
-```yaml
+```shell
+AGENT_PLAN=$(
+cat << EOF
 apiVersion: upgrade.cattle.io/v1
 kind: Plan
 metadata:
   name: rke2-agent-plan
   namespace: system-upgrade
 spec:
-  version: v1.36.1+rke2r2  # Target RKE2 version
+  version: $VERSION                         # Set the desired RKE2 version for the nodes, e.g. "v1.24.8+rke2r1"
   prepare:
     image: rancher/rke2-upgrade
-    args: ["prepare", "rke2-server-plan"]  # Wait for server plan to finish
-  concurrency: 2                            # Upgrade up to 2 workers concurrently
+    args: ["prepare", "rke2-server-plan"]   # Wait for server plan to finish
+  concurrency: 1                            # Leave as 1 for safety, can be increased for larger clusters
+  serviceAccountName: system-upgrade
   nodeSelector:
     matchExpressions:
       - key: node-role.kubernetes.io/control-plane
@@ -59,13 +73,21 @@ spec:
   drain:
     force: true
     ignoreDaemonSets: true
+    deleteLocalData: true
+    disableEviction: true
+    timeout: 185s                           # Ensure your applications can shut down within this time, adjust if necessary
   upgrade:
     image: rancher/rke2-upgrade
+    envs:
+      - name: SYSTEMD_DIR
+        value: /etc/systemd/system          # This is specifically for Ubuntu nodes, may be different for other OS types
+EOF
+)
 ```
 
-Apply the plan:
+Apply the agent plan
 ```shell
-fpk apply -f upgrade-agents.yaml
+echo "$AGENT_PLAN" | fpk apply -f -
 ```
 
 ### Monitoring the Upgrade
