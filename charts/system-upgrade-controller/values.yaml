@@ -1,0 +1,46 @@
+# Default values for system-upgrade-controller.
+# This is a YAML-formatted file.
+
+image:
+  repository: rancher/system-upgrade-controller
+  tag: v0.19.2
+  pullPolicy: IfNotPresent
+
+debug: false
+threads: 2
+
+# Upgrade job defaults
+job:
+  activeDeadlineSeconds: 900
+  backoffLimit: 99
+  imagePullPolicy: Always
+  kubectlImage: rancher/kubectl:v1.30.3
+  privileged: true
+  ttlSecondsAfterFinish: 900
+  planPollingInterval: 15m
+
+nodeSelector: {}
+
+tolerations:
+  - key: CriticalAddonsOnly
+    operator: Exists
+  - effect: NoSchedule
+    key: node-role.kubernetes.io/master
+    operator: Exists
+  - effect: NoSchedule
+    key: node-role.kubernetes.io/controlplane
+    operator: Exists
+  - effect: NoSchedule
+    key: node-role.kubernetes.io/control-plane
+    operator: Exists
+  - effect: NoExecute
+    key: node-role.kubernetes.io/etcd
+    operator: Exists
+
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
