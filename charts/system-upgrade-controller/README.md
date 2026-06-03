@@ -78,4 +78,3 @@ fpk get plans -n system-upgrade
 # Watch the upgrade pods executing on the nodes
 fpk get pods -n system-upgrade -w
 ```
-
