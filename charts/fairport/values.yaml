@@ -176,7 +176,7 @@ helmfile:
     namespace: system-upgrade
     createNamespace: true
     chart: oci://ghcr.io/fairport-io/charts/system-upgrade-controller
-    version: 0.13.4
+    version: 0.19.2
     atomic: true
     wait: true
     needs: [ "slurm/slurm" ]
