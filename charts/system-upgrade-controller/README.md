@@ -11,8 +11,7 @@ To perform a rolling upgrade of your cluster nodes, you define `Plan` custom res
 Create the server plan:
 
 ```shell
-SERVER_PLAN=$(
-cat << EOF
+cat << EOF > server-plan.yaml
 apiVersion: upgrade.cattle.io/v1
 kind: Plan
 metadata:
@@ -39,12 +38,11 @@ spec:
       - name: SYSTEMD_DIR
         value: /etc/systemd/system          # This is specifically for Ubuntu nodes, may be different for other OS types
 EOF
-)
 ```
 
 Apply the server plan:
 ```shell
-echo "$SERVER_PLAN" | fpk apply -f -
+fpk apply -f server-plan.yaml
 ```
 
 ## Upgrade Agent Nodes (Workers)
@@ -52,8 +50,7 @@ echo "$SERVER_PLAN" | fpk apply -f -
 Once the server nodes have completed upgrading, create the agent plan:
 
 ```shell
-AGENT_PLAN=$(
-cat << EOF
+cat << EOF > agent-plan.yaml
 apiVersion: upgrade.cattle.io/v1
 kind: Plan
 metadata:
@@ -82,12 +79,11 @@ spec:
       - name: SYSTEMD_DIR
         value: /etc/systemd/system          # This is specifically for Ubuntu nodes, may be different for other OS types
 EOF
-)
 ```
 
 Apply the agent plan
 ```shell
-echo "$AGENT_PLAN" | fpk apply -f -
+fpk apply -f agent-plan.yaml
 ```
 
 ### Monitoring the Upgrade
