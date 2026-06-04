@@ -1,3 +1,4 @@
+{{- if .Values.kubeai.enabled }}
 {{- if .Values.kubeai.metrics.prometheusOperator.kubeaiPodMonitor.enabled }}
 ---
 apiVersion: monitoring.coreos.com/v1
@@ -15,4 +16,5 @@ spec:
       {{- include "kubeai.labels" . | nindent 6 }} 
   podMetricsEndpoints:
   {{- .Values.kubeai.metrics.prometheusOperator.kubeaiPodMonitor.podMetricsEndpoints | toYaml | nindent 2 }}
+{{- end }}
 {{- end }}

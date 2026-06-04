@@ -1,3 +1,4 @@
+{{- if .Values.kubeai.enabled }}
 {{- if .Values.resourceprofileManager.enabled }}
 ---
 apiVersion: v1
@@ -57,4 +58,5 @@ spec:
               fieldPath: metadata.namespace
         - name: ANNOTATION_KEY
           value: {{ .Values.resourceprofileManager.annotationKey | quote }}
+{{- end }}
 {{- end }}
