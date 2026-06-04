@@ -51,6 +51,7 @@ Always create these (follow patterns from existing charts):
 | `Chart.yaml` | `apiVersion: v2`, `version: 0`, annotation `publish-repository: oci://gcr.io/fairport-io` |
 | `VERSION` | Single line: `0.3.0` (or user-provided version) |
 | `Makefile` | Symlink to `../Makefile` |
+| `README.md` | Docs about the app and how to install/use it with common parameters |
 | `Dockerfile` | Standard multi-stage alpine/helm:3.20 Dockerfile with `helm template <chart-name> . --namespace <chart-name>` in the test stage |
 | `.helmignore` | `./<chart-name>-*.tgz` |
 | `.dockerignore` | Exactly `Makefile`, `Dockerfile` |
@@ -99,6 +100,7 @@ Create these with `{{- $var := index .Values "<chart-name>" -}}` pattern:
 
 ### Post-creation checklist
 
+- [ ] Ensure that the README.md is updated
 - [ ] `make build` passes
 - [ ] `make test` passes
 - [ ] `git diff origin/main` shows only the expected new files
