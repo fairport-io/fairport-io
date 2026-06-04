@@ -8,4 +8,3 @@ This chart also deploys the **kubeai-resourceprofile-manager**, a Kopf-based Kub
 
 Source: [`apps/kubeai-resourceprofile-manager/`](/apps/kubeai-resourceprofile-manager/)
 
-
