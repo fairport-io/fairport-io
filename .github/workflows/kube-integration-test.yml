@@ -68,5 +68,7 @@ jobs:
         EOF
         timeout 1200 /bin/bash -c "while true; do sudo fpk get pods -A; sleep 30; done" &
         timeout 1200 /bin/bash -c "while true; do sudo fpk -n fairport logs fairport-installer-0; sleep 30; done" &
+        export FAIRPORT_CHART_SOURCE=ghcr.io/fairport-io/charts/fairport
+        export FAIRPORT_CHART_VERSION=1.0.2
         curl https://get.fairport.io | sudo -E bash -
 
