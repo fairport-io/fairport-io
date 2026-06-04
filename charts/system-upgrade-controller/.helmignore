@@ -1,0 +1,5 @@
+.helmignore
+.dockerignore
+Makefile
+Dockerfile
+*.tgz

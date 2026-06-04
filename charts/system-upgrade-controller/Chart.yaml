@@ -1,0 +1,7 @@
+apiVersion: v2
+name: system-upgrade-controller
+version: "0.0.0"
+description: Rancher System Upgrade Controller for automated node upgrades
+type: application
+annotations:
+  publish-repository: oci://ghcr.io/fairport-io

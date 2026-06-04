@@ -2,6 +2,10 @@
 kueue:
   enabled: true
   controllerManager:
+    tolerations:
+      - operator: "Exists"
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: "true"
     manager:
       resources:
         limits:

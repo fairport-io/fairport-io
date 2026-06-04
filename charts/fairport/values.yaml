@@ -171,6 +171,16 @@ helmfile:
     wait: true
     needs: [ "slurm/slurm" ]
     values: [ "helmfile-values.yaml.gotmpl" ]
+  - name: system-upgrade-controller
+    installed: true
+    namespace: system-upgrade
+    createNamespace: true
+    chart: oci://ghcr.io/fairport-io/charts/system-upgrade-controller
+    version: 0.19.2
+    atomic: true
+    wait: true
+    needs: [ "slurm/slurm" ]
+    values: [ "helmfile-values.yaml.gotmpl" ]
   #######
   # GPU #
   #######
@@ -182,7 +192,7 @@ helmfile:
     version: 26.3.1
     atomic: true
     wait: true
-    needs: [ "provisioning/provisioning" ]
+    needs: [ "monitoring/monitoring", "provisioning/provisioning", "slurm/slurm" ]
     values:
     - nvidia-gpu-operator:
         toolkit:
@@ -198,7 +208,7 @@ helmfile:
     version: 1.5.0
     atomic: true
     wait: true
-    needs: [ "provisioning/provisioning" ]
+    needs: [ "monitoring/monitoring", "provisioning/provisioning", "slurm/slurm" ]
     values: [ "helmfile-values.yaml.gotmpl" ]
   ############
   # Database #
