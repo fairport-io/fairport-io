@@ -46,6 +46,7 @@ helm delete --namespace fairport fairport
 | [Inference](#inference) 🤖           | ❌ Disabled    | [production-stack-operator](../production-stack-operator/README.md) | Industry standard backend for VLLM with distributed kv cacheing and intelligent queueing and routing |
 | [Inference](#inference) 🤖           | ❌ Disabled    | [bifrost](../bifrost/README.md)                                     | Inference router with user management, rate limiting, virtual keys, and budgets |
 | [Inference](#inference) 🤖           | ❌ Disabled    | [mpi-operator](../mpi-operator/README.md)                           | Distributed inference framework for running workloads across nodes |
+| [Inference](#inference) 🖥️           | ❌ Disabled    | [fairport-ui](../fairport-ui/README.md)                             | Web chat interface with API proxy, provider management, and OIDC SSO |
 | [Training](#training) 🏋️             | ✅ Enabled     | [slurm](../slurm/README.md)                                         | HPC job scheduler |
 | [Training](#training) 🏋️             | ✅ Enabled     | [slurm-operator](../slurm-operator/README.md)                       | HPC job scheduler component |
 | [Training](#training) 🏋️             | ✅ Enabled     | [kueue](../kueue/README.md)                                         | Kubernetes native job scheduler extension |

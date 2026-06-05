@@ -246,6 +246,16 @@ helmfile:
     wait: true
     needs: [ "openebs/openebs", "cert-manager/cert-manager", "kueue-system/kueue" ]
     values: [ "helmfile-values.yaml.gotmpl" ]
+  - name: fairport-ui
+    installed: true
+    namespace: fairport-ui
+    createNamespace: true
+    chart: oci://ghcr.io/fairport-io/charts/fairport-ui
+    version: 0.0.1
+    atomic: true
+    wait: true
+    needs: [ "openebs/openebs", "cert-manager/cert-manager", "cloudnative-pg/cloudnative-pg" ]
+    values: [ "helmfile-values.yaml.gotmpl" ]
   #########
   # Demos #
   #########
