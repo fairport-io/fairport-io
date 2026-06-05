@@ -1,6 +1,6 @@
 apiVersion: v2
 name: system-upgrade-controller
-version: "0.0.0"
+version: 0 # Inherited from the VERSION file when make is run
 description: Rancher System Upgrade Controller for automated node upgrades
 type: application
 annotations:
