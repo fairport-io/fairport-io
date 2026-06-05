@@ -256,6 +256,16 @@ helmfile:
     wait: true
     needs: [ "openebs/openebs", "cert-manager/cert-manager", "cloudnative-pg/cloudnative-pg" ]
     values: [ "helmfile-values.yaml.gotmpl" ]
+  - name: bifrost
+    installed: false
+    namespace: bifrost
+    createNamespace: true
+    chart: oci://ghcr.io/fairport-io/charts/bifrost
+    version: 2.1.21
+    atomic: true
+    wait: true
+    needs: [ "openebs/openebs", "cert-manager/cert-manager", "cloudnative-pg/cloudnative-pg" ]
+    values: [ "helmfile-values.yaml.gotmpl" ]
   #########
   # Demos #
   #########

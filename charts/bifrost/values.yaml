@@ -1,0 +1,113 @@
+---
+bifrost:
+  enabled: false
+  image:
+    repository: docker.io/maximhq/bifrost
+    tag: "v1.5.3"
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+  replicaCount: 1
+  serviceAccount:
+    create: true
+    automount: true
+    name: ""
+  rbac:
+    podDiscovery:
+      enabled: true
+  podAnnotations: {}
+  podLabels: {}
+  podSecurityContext:
+    fsGroup: 1000
+    runAsUser: 1000
+    runAsNonRoot: true
+  securityContext:
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: false
+    runAsNonRoot: true
+    runAsUser: 1000
+  service:
+    type: ClusterIP
+    port: 8080
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts:
+      - host: bifrost.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  terminationGracePeriodSeconds: 60
+  lifecycle:
+    preStop:
+      exec:
+        command: ["sh", "-c", "sleep 15"]
+  bifrost:
+    port: 8080
+    host: 0.0.0.0
+    logLevel: info
+    logStyle: json
+    encryptionKey: ""
+    encryptionKeySecret:
+      name: ""
+      key: "encryption-key"
+    client:
+      allowedOrigins:
+        - "*"
+      enableLogging: true
+      disableContentLogging: false
+      logRetentionDays: 365
+      enforceAuthOnInference: true
+      maxRequestBodySizeMb: 100
+    providers: {}
+    providerSecrets: {}
+    plugins:
+      telemetry:
+        enabled: false
+      logging:
+        enabled: false
+      governance:
+        enabled: false
+    governance:
+      budgets: []
+      rateLimits: []
+      customers: []
+      teams: []
+      virtualKeys: []
+      modelConfigs: []
+      providers: []
+      routingRules: []
+    cluster:
+      enabled: false
+  storage:
+    mode: postgres
+  postgresql:
+    enabled: false
+    external:
+      enabled: true
+      host: "cloudnative-pg-cluster-rw.cloudnative-pg.svc.cluster.local"
+      port: 5432
+      user: bifrost
+      database: bifrost
+      sslMode: disable
+      existingSecret: bifrost-pg-password
+      passwordKey: password
