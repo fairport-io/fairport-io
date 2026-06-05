@@ -1,0 +1,18 @@
+{{- $fairportUi := index .Values "fairport-ui" -}}
+{{- if $fairportUi.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fairport-ui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- toYaml $fairportUi.labels | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: fairport-ui
+subjects:
+- kind: ServiceAccount
+  name: {{ $fairportUi.serviceAccount.name }}
+  namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -1,0 +1,38 @@
+{{- $fairportUi := index .Values "fairport-ui" -}}
+{{- if $fairportUi.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fairport-ui
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- toYaml $fairportUi.labels | nindent 4 }}
+spec:
+  replicas: {{ $fairportUi.replicaCount }}
+  selector:
+    matchLabels:
+      {{- toYaml $fairportUi.labels | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- toYaml $fairportUi.labels | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $fairportUi.serviceAccount.name }}
+      containers:
+      - name: fairport-ui
+        image: {{ $fairportUi.image }}
+        imagePullPolicy: {{ $fairportUi.imagePullPolicy }}
+        ports:
+        - name: http
+          containerPort: 8000
+        env:
+        {{- $allEnv := concat $fairportUi.env $fairportUi.extraEnv }}
+        {{- range $allEnv }}
+        - name: {{ .name }}
+          value: {{ .value | quote }}
+        {{- end }}
+        resources: {{ $fairportUi.resources | toJson }}
+      nodeSelector: {{ $fairportUi.nodeSelector | toJson }}
+      tolerations: {{ $fairportUi.tolerations | toJson }}
+      affinity: {{ $fairportUi.affinity | toJson }}
+{{- end }}
