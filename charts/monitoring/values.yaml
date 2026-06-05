@@ -40,12 +40,11 @@ kube-prometheus-stack:
       auth.anonymous:
         enabled: true
         org_role: Admin
-    service:
-      port: 80
-    grafana.ini:
       server:
         root_url: "%(protocol)s://%(domain)s/grafana/"
         serve_from_sub_path: true
+    service:
+      port: 80
     ingress:
       enabled: false
       path: /grafana
