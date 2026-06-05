@@ -44,7 +44,7 @@ helm delete --namespace fairport fairport
 | [Certificate Management](#certs)  🔏 | ✅ Enabled     | [cert-manager](../cert-manager/README.md)                           | Manages and generates certificates for applications (internal or external with providers like LetsEncrypt) |
 | [Inference](#inference) 🤖           | ✅ Enabled     | [kubeai](../kubeai/README.md)                                       | Extremely simple inference solution capable of running backends like vllm, whisper, ollama |
 | [Inference](#inference) 🤖           | ❌ Disabled    | [production-stack-operator](../production-stack-operator/README.md) | Industry standard backend for VLLM with distributed kv cacheing and intelligent queueing and routing |
-| [Inference](#inference) 🤖           | ❌ Disabled    | [bifrost](../bifrost/README.md)                                     | Inference router with user management, rate limiting, virtual keys, and budgets |
+| [Inference](#inference) 🤖           | ❌ Disabled    | [bifrost](../bifrost/README.md)                                     | AI gateway with unified provider interface, load balancing, guardrails, and governance |
 | [Inference](#inference) 🤖           | ❌ Disabled    | [mpi-operator](../mpi-operator/README.md)                           | Distributed inference framework for running workloads across nodes |
 | [Inference](#inference) 🖥️           | ❌ Disabled    | [fairport-ui](../fairport-ui/README.md)                             | Web chat interface with API proxy, provider management, and OIDC SSO |
 | [Training](#training) 🏋️             | ✅ Enabled     | [slurm](../slurm/README.md)                                         | HPC job scheduler |

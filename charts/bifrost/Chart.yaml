@@ -1,0 +1,11 @@
+---
+apiVersion: v2
+name: bifrost
+version: "0" # Inherited from the VERSION file when make is run
+dependencies:
+- name: bifrost
+  condition: bifrost.enabled
+  version: 2.1.21
+  repository: https://maximhq.github.io/bifrost/helm-charts
+annotations:
+  publish-repository: oci://ghcr.io/fairport-io
