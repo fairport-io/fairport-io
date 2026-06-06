@@ -32,7 +32,7 @@ dhcp-boot=tag:!tinkerbell, ipxe.efi, none, 10.1.1.2
 # STEP 2: iPXE BOOT
 # If the machine IS tagged "tinkerbell", it means iPXE is now running.
 # Hand it the HTTP URL to download the Tinkerbell workflow.
-dhcp-boot=tag:tinkerbell, http://10.1.1.2:8541/ipxe/script/${net0/mac}/auto.ipxe
+dhcp-boot=tag:tinkerbell, http://10.1.1.2:7171/ipxe/script/${net0/mac}/auto.ipxe
 
 # ==========================================
 # 3. Troubleshooting
