@@ -118,6 +118,9 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | **Mobile** | Responsive header dropdowns |
 | **Sidebar** | 6 tabs: Chat, API, Providers, Usage, Deployments, Settings |
 | **Sidebar** | Active tab highlighting |
+| **Deployments** | Creates namespace-scoped Kubernetes Deployments and Services from the Deployments tab |
+| **Deployments** | `local` location uses in-cluster Kubernetes config; other locations load kubeconfig files from `KUBECONFIG_SECRET_DIR` |
+| **Deployments** | Shows provisioning, active, failed, and deleted states with healthy/current replica counts and manual refresh |
 | **Settings** | Delete account with email confirmation |
 | **Rate Limiting** | Per-user-per-model multi-window sliding window rate limiting (429 with key/provider/model/limit in message) |
 | **Rate Limiting** | Rate limits configured via `model_pricing.rate_limits` (e.g. `"10:request:minute,1:request:second"`) |
@@ -186,6 +189,8 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | `PGDATABASE` | `fairport-ui` | PostgreSQL database name |
 | `PGUSER` | `` | PostgreSQL user (required when `DATABASE_TYPE=postgres`) |
 | `PGPASSWORD` | `` | PostgreSQL password (required when `DATABASE_TYPE=postgres`) |
+| `KUBE_NAMESPACE` | service account namespace | Namespace for Kubernetes Deployments and Services managed by the Deployments tab |
+| `KUBECONFIG_SECRET_DIR` | `/var/run/secrets/fairport-ui/kubeconfigs` | Directory containing `<location>.kubeconfig` files for non-local deployment locations |
 
 ## Database
 

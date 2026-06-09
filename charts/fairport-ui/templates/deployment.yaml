@@ -26,12 +26,28 @@ spec:
         - name: http
           containerPort: 8000
         env:
+        - name: KUBE_NAMESPACE
+          value: {{ .Release.Namespace | quote }}
+        - name: KUBECONFIG_SECRET_DIR
+          value: {{ $fairportUi.kubeconfigSecret.mountPath | quote }}
         {{- $allEnv := concat $fairportUi.env $fairportUi.extraEnv }}
         {{- range $allEnv }}
         - name: {{ .name }}
           value: {{ .value | quote }}
         {{- end }}
+        {{- if $fairportUi.kubeconfigSecret.enabled }}
+        volumeMounts:
+        - name: kubeconfigs
+          mountPath: {{ $fairportUi.kubeconfigSecret.mountPath | quote }}
+          readOnly: true
+        {{- end }}
         resources: {{ $fairportUi.resources | toJson }}
+      {{- if $fairportUi.kubeconfigSecret.enabled }}
+      volumes:
+      - name: kubeconfigs
+        secret:
+          secretName: {{ required "fairport-ui.kubeconfigSecret.name is required when kubeconfigSecret.enabled=true" $fairportUi.kubeconfigSecret.name }}
+      {{- end }}
       nodeSelector: {{ $fairportUi.nodeSelector | toJson }}
       tolerations: {{ $fairportUi.tolerations | toJson }}
       affinity: {{ $fairportUi.affinity | toJson }}
