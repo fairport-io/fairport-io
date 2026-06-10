@@ -34,9 +34,11 @@ spec:
     timeout: 185s                           # Ensure your applications can shut down within this time, adjust if necessary
   upgrade:
     image: rancher/rke2-upgrade
-    envs:
-      - name: SYSTEMD_DIR
-        value: /etc/systemd/system          # This is specifically for Ubuntu nodes, may be different for other OS types
+    command:                                # This is specifically for Ubuntu nodes, may be different for other OS types
+     - /bin/sh
+     - -c
+     - |
+        mkdir -p /host/usr/local/lib/systemd/system && exec /bin/upgrade.sh upgrade
 EOF
 ```
 
@@ -75,9 +77,11 @@ spec:
     timeout: 185s                           # Ensure your applications can shut down within this time, adjust if necessary
   upgrade:
     image: rancher/rke2-upgrade
-    envs:
-      - name: SYSTEMD_DIR
-        value: /etc/systemd/system          # This is specifically for Ubuntu nodes, may be different for other OS types
+    command:                                # This is specifically for Ubuntu nodes, may be different for other OS types
+     - /bin/sh
+     - -c
+     - |
+        mkdir -p /host/usr/local/lib/systemd/system && exec /bin/upgrade.sh upgrade
 EOF
 ```
 
