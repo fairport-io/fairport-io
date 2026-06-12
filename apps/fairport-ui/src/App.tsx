@@ -27,6 +27,7 @@ import {
   Check,
   Server,
   Pencil,
+  RefreshCw,
   X,
   Menu,
   DollarSign,
@@ -136,6 +137,9 @@ interface Deployment {
   minReplicas: number;
   maxReplicas: number;
   currentReplicas: number;
+  healthyReplicas: number;
+  state: 'provisioning' | 'active' | 'failed' | 'deleted';
+  errorMessage?: string;
   location: string;
   gpuType: string;
   numGpus: number;
@@ -283,6 +287,9 @@ export default function App() {
   const DEPLOY_IMAGES = ['vllm/vllm-openai:v0.20.2', 'ollama/ollama:0.23.4'];
   const DEPLOY_GPU_TYPES = ['None', 'NVIDIA A100', 'NVIDIA H100', 'NVIDIA L40S', 'NVIDIA A10G', 'AMD MI250'];
   const [deployments, setDeployments] = useState<Deployment[]>([]);
+  const [deploymentError, setDeploymentError] = useState('');
+  const [creatingDeployment, setCreatingDeployment] = useState(false);
+  const [refreshingDeploymentId, setRefreshingDeploymentId] = useState<string | null>(null);
   const [newDeployName, setNewDeployName] = useState('');
   const [newDeployImage, setNewDeployImage] = useState(DEPLOY_IMAGES[0]);
   const [newDeployModel, setNewDeployModel] = useState('');
@@ -421,6 +428,7 @@ export default function App() {
         loadMessages(data.username || '');
         loadUsage();
         loadGroups();
+        loadDeployments();
       } else {
         localStorage.removeItem('jwt_token');
         setToken(null);
@@ -454,6 +462,104 @@ export default function App() {
       }
     } catch (e) {
       console.error('Failed to load keys:', e);
+    }
+  };
+
+  const loadDeployments = async () => {
+    try {
+      const res = await fetch('/api/deployments', { headers: { 'Cache-Control': 'no-cache', ...authHeaders() } });
+      if (res.ok) {
+        setDeployments(await res.json());
+      } else if (res.status !== 401) {
+        const data = await res.json().catch(() => ({}));
+        setDeploymentError(data.detail || 'Failed to load deployments');
+      }
+    } catch (e) {
+      console.error('Failed to load deployments:', e);
+      setDeploymentError('Failed to load deployments');
+    }
+  };
+
+  const createDeployment = async () => {
+    if (!newDeployName.trim()) return;
+    setCreatingDeployment(true);
+    setDeploymentError('');
+    try {
+      const res = await fetch('/api/deployments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({
+          name: newDeployName.trim(),
+          image: newDeployImage,
+          model: newDeployModel.trim() || 'hf://default',
+          minReplicas: newDeployMin,
+          maxReplicas: newDeployMax,
+          location: newDeployLocation,
+          gpuType: newDeployGpuType,
+          numGpus: newDeployNumGpus,
+          hostCpus: newDeployHostCpus,
+          hostMemory: newDeployHostMemory,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDeploymentError(data.detail || 'Failed to create deployment');
+        return;
+      }
+      setDeployments(prev => [...prev.filter(d => d.id !== data.id), data]);
+      setNewDeployName('');
+      setNewDeployModel('');
+      setNewDeployMin(0);
+      setNewDeployMax(1);
+      setNewDeployNumGpus(0);
+      setNewDeployHostCpus(2);
+      setNewDeployHostMemory('8Gi');
+    } catch (e) {
+      console.error('Failed to create deployment:', e);
+      setDeploymentError('Failed to create deployment');
+    } finally {
+      setCreatingDeployment(false);
+    }
+  };
+
+  const refreshDeployment = async (id: string) => {
+    setRefreshingDeploymentId(id);
+    setDeploymentError('');
+    try {
+      const res = await fetch(`/api/deployments/${id}/refresh`, {
+        method: 'POST',
+        headers: { ...authHeaders() },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDeploymentError(data.detail || 'Failed to refresh deployment');
+        return;
+      }
+      setDeployments(prev => prev.map(d => d.id === id ? data : d));
+    } catch (e) {
+      console.error('Failed to refresh deployment:', e);
+      setDeploymentError('Failed to refresh deployment');
+    } finally {
+      setRefreshingDeploymentId(null);
+    }
+  };
+
+  const deleteDeployment = async (id: string) => {
+    setDeploymentError('');
+    try {
+      const res = await fetch(`/api/deployments/${id}`, {
+        method: 'DELETE',
+        headers: { ...authHeaders() },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDeploymentError(data.detail || 'Failed to delete deployment');
+        return;
+      }
+      setDeployments(prev => prev.map(d => d.id === id ? data : d));
+    } catch (e) {
+      console.error('Failed to delete deployment:', e);
+      setDeploymentError('Failed to delete deployment');
     }
   };
 
@@ -635,7 +741,18 @@ export default function App() {
     if (activeTab === 'groups') {
       loadGroups();
     }
+    if (activeTab === 'deployments') {
+      loadDeployments();
+    }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!deployments.some(d => d.state === 'provisioning')) return;
+    const timer = window.setInterval(() => {
+      loadDeployments();
+    }, 2000);
+    return () => window.clearInterval(timer);
+  }, [deployments]);
 
   const loadMessages = async (userName?: string) => {
     const key = userName ? `${STORAGE_KEYS.CHAT_HISTORY}_${userName}` : STORAGE_KEYS.CHAT_HISTORY;
@@ -747,6 +864,7 @@ export default function App() {
         setActiveIdentity({ type: 'user', id: data.user?.id || '', name: data.user?.name || authForm.username });
         setActiveTab('chat');
         await loadKeys();
+        loadDeployments();
         // Load config and providers
         const configRes = await fetch('/api/config');
         const configData = await configRes.json();
@@ -998,6 +1116,13 @@ export default function App() {
     } catch (e) {
       console.error('Failed to delete account:', e);
     }
+  };
+
+  const deploymentStatus = (state: Deployment['state']) => {
+    if (state === 'active') return { label: 'active', dot: 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.6)]', text: 'text-green-600 dark:text-green-400' };
+    if (state === 'provisioning') return { label: 'provisioning', dot: 'bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.6)]', text: 'text-amber-600 dark:text-amber-400' };
+    if (state === 'deleted') return { label: 'deleted', dot: 'bg-slate-400', text: 'text-slate-500 dark:text-zinc-400' };
+    return { label: 'failed', dot: 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.6)]', text: 'text-red-600 dark:text-red-400' };
   };
 
   if (!isLoggedIn) {
@@ -1959,6 +2084,11 @@ export default function App() {
                   <div className="p-8 space-y-8">
                     <div>
                       <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-500 mb-4">New Deployment</h3>
+                      {deploymentError && (
+                        <div className="mb-4 p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900/50 text-sm text-red-600 dark:text-red-400">
+                          {deploymentError}
+                        </div>
+                      )}
                       <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 p-6">
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-1.5">
@@ -2067,34 +2197,11 @@ export default function App() {
                           </div>
                         </div>
                         <button
-                          onClick={() => {
-                            if (!newDeployName.trim()) return;
-                            setDeployments(prev => [...prev, {
-                              id: genId(),
-                              name: newDeployName.trim(),
-                              image: newDeployImage,
-                              model: newDeployModel.trim() || 'hf://default',
-                              minReplicas: newDeployMin,
-                              maxReplicas: newDeployMax,
-                              currentReplicas: 0,
-                              location: newDeployLocation,
-                              gpuType: newDeployGpuType,
-                              numGpus: newDeployNumGpus,
-                              hostCpus: newDeployHostCpus,
-                              hostMemory: newDeployHostMemory,
-                            }]);
-                            setNewDeployName('');
-                            setNewDeployModel('');
-                            setNewDeployMin(0);
-                            setNewDeployMax(1);
-                            setNewDeployNumGpus(0);
-                            setNewDeployHostCpus(2);
-                            setNewDeployHostMemory('8Gi');
-                          }}
-                          disabled={!newDeployName.trim() || deployments.length >= 5}
+                          onClick={createDeployment}
+                          disabled={!newDeployName.trim() || creatingDeployment || deployments.filter(d => d.state !== 'deleted').length >= 5}
                           className="w-full mt-4 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 dark:disabled:bg-zinc-700 text-white py-3 rounded-2xl font-bold shadow-lg shadow-indigo-600/20 active:scale-[0.99] transition-all flex items-center justify-center gap-2"
                         >
-                          <Plus className="w-4 h-4" /> {deployments.length >= 5 ? 'Limit Reached (5)' : 'Create Deployment'}
+                          <Plus className="w-4 h-4" /> {deployments.filter(d => d.state !== 'deleted').length >= 5 ? 'Limit Reached (5)' : creatingDeployment ? 'Creating...' : 'Create Deployment'}
                         </button>
                       </div>
                     </div>
@@ -2113,54 +2220,53 @@ export default function App() {
                                 <th className="text-left p-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">Name</th>
                                 <th className="text-center p-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">Min</th>
                                 <th className="text-center p-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">Max</th>
-                                <th className="text-center p-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">Current</th>
+                                <th className="text-center p-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">Healthy</th>
                                 <th className="text-center p-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">Status</th>
                                 <th className="text-right p-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">Actions</th>
                               </tr>
                             </thead>
                             <tbody>
-                              {deployments.map(d => (
+                              {deployments.map(d => {
+                                const status = deploymentStatus(d.state);
+                                return (
                                 <tr key={d.id} className="border-b border-slate-100 dark:border-zinc-800 last:border-b-0 hover:bg-slate-50 dark:hover:bg-zinc-800/30 transition-colors">
-                                  <td className="p-4 font-bold text-slate-700 dark:text-zinc-200">{d.name}</td>
+                                  <td className="p-4">
+                                    <div className="font-bold text-slate-700 dark:text-zinc-200">{d.name}</div>
+                                    {d.errorMessage && (
+                                      <div className="mt-1 text-xs text-red-500 max-w-[220px] truncate" title={d.errorMessage}>{d.errorMessage}</div>
+                                    )}
+                                  </td>
                                   <td className="p-4 text-center font-mono text-xs text-slate-500 dark:text-zinc-400">{d.minReplicas}</td>
                                   <td className="p-4 text-center font-mono text-xs text-slate-500 dark:text-zinc-400">{d.maxReplicas}</td>
-                                  <td className="p-4 text-center font-mono text-xs text-slate-500 dark:text-zinc-400">{d.currentReplicas}</td>
+                                  <td className="p-4 text-center font-mono text-xs text-slate-500 dark:text-zinc-400">{d.healthyReplicas}/{d.currentReplicas}</td>
                                   <td className="p-4 text-center">
                                     <div className="flex items-center justify-center gap-1.5">
-                                      <span className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.6)]" />
-                                      <span className="text-xs font-mono text-slate-500 dark:text-zinc-400">ok</span>
+                                      <span className={`w-2 h-2 rounded-full ${status.dot}`} />
+                                      <span className={`text-xs font-mono ${status.text}`}>{status.label}</span>
                                     </div>
                                   </td>
                                   <td className="p-4 text-right">
                                     <div className="flex items-center justify-end gap-1">
                                       <button
-                                        onClick={() => {
-                                          setEditDeployData(d);
-                                          setEditName(d.name);
-                                          setEditImage(d.image);
-                                          setEditModel(d.model);
-                                          setEditMin(d.minReplicas);
-                                          setEditMax(d.maxReplicas);
-                                          setEditLocation(d.location);
-                                          setEditGpuType(d.gpuType);
-                                          setEditNumGpus(d.numGpus);
-                                          setEditHostCpus(d.hostCpus);
-                                          setEditHostMemory(d.hostMemory);
-                                        }}
-                                        className="p-2 hover:bg-slate-100 dark:hover:bg-zinc-700 text-slate-500 rounded-xl transition-colors"
+                                        onClick={() => refreshDeployment(d.id)}
+                                        disabled={d.state === 'deleted' || refreshingDeploymentId === d.id}
+                                        title="Refresh deployment status"
+                                        className="p-2 hover:bg-slate-100 dark:hover:bg-zinc-700 disabled:opacity-40 text-slate-500 rounded-xl transition-colors"
                                       >
-                                        <Pencil className="w-4 h-4" />
+                                        <RefreshCw className={`w-4 h-4 ${refreshingDeploymentId === d.id ? 'animate-spin' : ''}`} />
                                       </button>
                                       <button
-                                        onClick={() => setDeployments(prev => prev.filter(x => x.id !== d.id))}
-                                        className="p-2 hover:bg-red-50 dark:hover:bg-red-950/30 text-red-500 rounded-xl transition-colors"
+                                        onClick={() => deleteDeployment(d.id)}
+                                        disabled={d.state === 'deleted'}
+                                        title="Delete deployment"
+                                        className="p-2 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-40 text-red-500 rounded-xl transition-colors"
                                       >
                                         <Trash2 className="w-4 h-4" />
                                       </button>
                                     </div>
                                   </td>
                                 </tr>
-                              ))}
+                              )})}
                             </tbody>
                           </table>
                         </div>

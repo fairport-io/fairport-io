@@ -11,6 +11,13 @@ import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 import { createDatabase } from './src/db/index';
 import type { DatabaseAdapter, DbData } from './src/db/index';
+import {
+  createKubernetesDeployment,
+  deleteKubernetesDeployment,
+  listKubernetesDeployments,
+  refreshKubernetesDeployment,
+  type DeploymentInput,
+} from './src/kubernetes/deployments';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1343,6 +1350,105 @@ app.delete('/api/providers/:id', async (req, res) => {
   db.providers.splice(providerIndex, 1);
   await saveDb(db);
   res.json({ status: "success" });
+});
+
+// --- KUBERNETES DEPLOYMENT LOGIC ---
+function asPositiveInteger(value: any, fallback: number): number {
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function validateDeploymentInput(body: any): { input?: DeploymentInput; error?: string } {
+  const name = String(body?.name || '').trim();
+  const image = String(body?.image || '').trim();
+  const model = String(body?.model || 'hf://default').trim();
+  const location = String(body?.location || 'local').trim();
+  const gpuType = String(body?.gpuType || 'None').trim();
+  const hostMemory = String(body?.hostMemory || '8Gi').trim();
+  const minReplicas = asPositiveInteger(body?.minReplicas, 0);
+  const maxReplicas = asPositiveInteger(body?.maxReplicas, 1);
+  const numGpus = asPositiveInteger(body?.numGpus, 0);
+  const hostCpus = asPositiveInteger(body?.hostCpus, 1);
+
+  if (!name) return { error: 'Name is required' };
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$/.test(name)) {
+    return { error: 'Name must be 1-63 characters and contain only letters, numbers, dots, underscores, or dashes' };
+  }
+  if (!image) return { error: 'Image is required' };
+  if (!location) return { error: 'Location is required' };
+  if (maxReplicas < 1) return { error: 'Maximum replicas must be at least 1' };
+  if (minReplicas > maxReplicas) return { error: 'Minimum replicas cannot exceed maximum replicas' };
+  if (hostCpus < 1) return { error: 'Host CPUs must be at least 1' };
+  if (!/^\d+(Ei|Pi|Ti|Gi|Mi|Ki|E|P|T|G|M|K)?$/.test(hostMemory)) {
+    return { error: 'Host memory must be a Kubernetes quantity such as 8Gi' };
+  }
+
+  return {
+    input: {
+      name,
+      image,
+      model,
+      minReplicas,
+      maxReplicas,
+      location,
+      gpuType,
+      numGpus,
+      hostCpus,
+      hostMemory,
+    },
+  };
+}
+
+app.get('/api/deployments', async (req, res) => {
+  const { user } = await getAuthContext(req);
+  if (!user) return res.status(401).json({ detail: "Auth required" });
+  res.json(listKubernetesDeployments(user.id));
+});
+
+app.post('/api/deployments', async (req, res) => {
+  const { user } = await getAuthContext(req);
+  if (!user) return res.status(401).json({ detail: "Auth required" });
+
+  const existing = listKubernetesDeployments(user.id).filter(d => d.state !== 'deleted');
+  if (existing.length >= 5) {
+    return res.status(400).json({ detail: 'Maximum of 5 deployments allowed' });
+  }
+
+  const { input, error } = validateDeploymentInput(req.body);
+  if (!input) {
+    return res.status(400).json({ detail: error || 'Invalid deployment' });
+  }
+
+  const duplicate = existing.find(d => d.name.toLowerCase() === input.name.toLowerCase());
+  if (duplicate) {
+    return res.status(409).json({ detail: `A deployment with name "${input.name}" already exists` });
+  }
+
+  res.status(202).json(createKubernetesDeployment(input, user.id));
+});
+
+app.post('/api/deployments/:id/refresh', async (req, res) => {
+  const { user } = await getAuthContext(req);
+  if (!user) return res.status(401).json({ detail: "Auth required" });
+  try {
+    const deployment = await refreshKubernetesDeployment(req.params.id, user.id);
+    if (!deployment) return res.status(404).json({ detail: 'Deployment not found' });
+    res.json(deployment);
+  } catch (error: any) {
+    res.status(500).json({ detail: error?.message || 'Failed to refresh deployment' });
+  }
+});
+
+app.delete('/api/deployments/:id', async (req, res) => {
+  const { user } = await getAuthContext(req);
+  if (!user) return res.status(401).json({ detail: "Auth required" });
+  try {
+    const deployment = await deleteKubernetesDeployment(req.params.id, user.id);
+    if (!deployment) return res.status(404).json({ detail: 'Deployment not found' });
+    res.json(deployment);
+  } catch (error: any) {
+    res.status(500).json({ detail: error?.message || 'Failed to delete deployment' });
+  }
 });
 
 // --- GROUPS LOGIC ---
