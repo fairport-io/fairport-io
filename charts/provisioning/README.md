@@ -70,5 +70,5 @@ cp /etc/resolv.conf /mnt/etc/resolv.conf
 mount --bind /dev /mnt/dev
 mount --bind /proc /mnt/proc
 mount --bind /sys /mnt/sys
-chroot mnt /bin/bash
+chroot /mnt /bin/bash
 ```
