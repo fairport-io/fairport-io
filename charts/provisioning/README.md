@@ -42,4 +42,33 @@ dhcp-boot=tag:tinkerbell, http://10.1.1.2:7171/ipxe/script/${net0/mac}/auto.ipxe
 log-dhcp
 ```
 
+## Troubleshooting
 
+### Tinkerbell Logs
+
+From the kube control-plane:
+
+```shell
+fpk -n provisioning get wf <workflow> -o yaml
+```
+
+### System logs
+
+From the target system's console:
+
+```shell
+docker logs tink-worker
+```
+
+### Debug Inside System
+
+If the workflow fails, you will be able to run commands manually inside of a chroot of the system (from the console):
+
+```shell
+mount <PARTITION> /mnt/
+cp /etc/resolv.conf /mnt/etc/resolv.conf
+mount --bind /dev /mnt/dev
+mount --bind /proc /mnt/proc
+mount --bind /sys /mnt/sys
+chroot mnt /bin/bash
+```
