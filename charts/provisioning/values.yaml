@@ -16,6 +16,8 @@ tinkerbell:
     resources:
       requests: { cpu: "1m", memory: "1Mi" }
     envs:
+      globals:
+        httpPort: 7171
       tinkServer:
         autoDiscoveryAutoEnrollmentEnabled: true
         autoDiscoveryEnabled: true
@@ -23,6 +25,8 @@ tinkerbell:
       smee:
         dhcpMode: auto-proxy
         ipxeOverrideArchMapping: "7=snp-x86_64.efi,16=snp-x86_64.efi"
+        dhcpIpxeHttpBinaryPort: 7171
+        dhcpIpxeHttpScriptPort: 7171
   optional:
     # os-image-cache will handle this
     hookos:
