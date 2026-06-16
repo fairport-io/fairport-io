@@ -66,7 +66,6 @@ If the workflow fails, you will be able to run commands manually inside of a chr
 
 ```shell
 mount <PARTITION> /mnt/
-cp /etc/resolv.conf /mnt/etc/resolv.conf
 mount --bind /dev /mnt/dev
 mount --bind /proc /mnt/proc
 mount --bind /sys /mnt/sys
