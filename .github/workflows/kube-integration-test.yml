@@ -1,0 +1,74 @@
+name: Kubernetes Integration Test
+
+on:
+  workflow_call:
+
+jobs:
+  kube-integration-test:
+    name: Kubernetes Integration Test
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Create Kubernetes Cluster
+      shell: bash {0}
+      run: |
+        mkdir -p /opt/fairport
+        export FAIRPORT_CONFIG_FILE=/opt/fairport/fp-values.yaml
+        cat << EOF > $FAIRPORT_CONFIG_FILE
+        kube-vip:
+          kube-vip:
+            enabled: false
+        cert-manager:
+          cert-manager:
+            enabled: false
+        monitoring:
+          kube-prometheus-stack:
+            enabled: false 
+        rancher:
+          rancher:
+            enabled: false
+        kyverno:
+          kyverno:
+            enabled: false
+        mpi-operator:
+          mpi-operator:
+            enabled: false
+        slurm-operator:
+          slurm-operator:
+            enabled: false
+        kueue:
+          kueue:
+            enabled: false
+        slurm:
+          slurm:
+            enabled: false
+        provisioning:
+          tinkerbell:
+            enabled: false
+        nvidia-gpu-operator:
+          nvidia-gpu-operator:
+            enabled: false
+        amd-gpu-operator:
+          amd-gpu-operator:
+            enabled: false
+        cloudnative-pg:
+          cloudnative-pg:
+            enabled: false
+        kubeai:
+          kubeai:
+            enabled: false
+        production-stack-operator:
+          production-stack-operator:
+            enabled: false
+        EOF
+        timeout 1200 /bin/bash -c "while true; do sudo fpk get pods -A; sleep 30; done" &
+        timeout 1200 /bin/bash -c "while true; do sudo fpk -n fairport logs fairport-installer-0; sleep 30; done" &
+        export FAIRPORT_CHART_SOURCE=oci://ghcr.io/fairport-io/charts/fairport
+        export FAIRPORT_CHART_VERSION=1.0.2
+        curl https://get.fairport.io | sudo -E bash -
+
