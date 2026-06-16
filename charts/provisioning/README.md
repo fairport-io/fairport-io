@@ -72,3 +72,13 @@ mount --bind /proc /mnt/proc
 mount --bind /sys /mnt/sys
 chroot /mnt /bin/bash
 ```
+
+### DNS
+
+Sometimes the target chroot will need to use a specific DNS server.
+
+```
+rm -f /etc/resolv.conf
+echo "nameserver <your-nameserver>" > /etc/resolv.conf
+
+```
