@@ -150,6 +150,9 @@ Definitions
 | State | Suite | Endpoint      | Method | Test |
 |-------|-------|---------------|--------|------|
 | -     |       | /deployments  | -    | create/edit/delete (max 5) |
+| ✅    | vi    | (internal)    | -    | create returns provisioning then active after Kubernetes apply — kubernetes-deployments.test.ts |
+| ✅    | vi    | (internal)    | -    | refresh counts Ready pods as healthy replicas — kubernetes-deployments.test.ts |
+| ✅    | vi    | (internal)    | -    | apply failure marks failed and deletes Kubernetes objects — kubernetes-deployments.test.ts |
 
 ## /identity (header)
 | State | Suite | Endpoint   | Method | Test |

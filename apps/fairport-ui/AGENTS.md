@@ -56,6 +56,17 @@ All database operations were extracted from `server.ts` into a proper abstractio
 ### Schema
 Tables mirror the YAML collections: `users`, `api_keys`, `roles`, `groups_table` (named to avoid reserved word), `models`, `messages`, `providers`, `model_pricing`, `usage_events`. JSON fields (`permissions`, `members`, `api_keys`) stored as `TEXT` in PGlite, `JSONB` in PostgreSQL.
 
+## Kubernetes Deployment Support (2026-06-09)
+
+The Deployments tab now uses server APIs instead of client-only state:
+
+- `src/kubernetes/deployments.ts` owns the in-memory deployment records and Kubernetes API calls.
+- `POST /api/deployments` returns a `provisioning` record immediately, then applies a Kubernetes Deployment and Service asynchronously.
+- `local` location loads in-cluster config; non-local locations load `<location>.kubeconfig` from `KUBECONFIG_SECRET_DIR`.
+- Provisioning has a 5-minute timeout. Timeout or apply failure marks the row `failed` and attempts to delete the Kubernetes objects.
+- `POST /api/deployments/:id/refresh` reads the Deployment and lists Ready pods for healthy/current replica display.
+- `DELETE /api/deployments/:id` deletes the Kubernetes objects and leaves the row in `deleted` state.
+
 ## Security Hardening (2026-05-27)
 
 The following security issues were identified and fixed:

@@ -10,6 +10,10 @@ fairport-ui:
   serviceAccount:
     create: true
     name: fairport-ui
+  kubeconfigSecret:
+    enabled: false
+    name: ""
+    mountPath: /var/run/secrets/fairport-ui/kubeconfigs
   env:
     - { name: "PORT", value: "8000" }
     - { name: "APP_NAME", value: "fairport.io" }

@@ -22,6 +22,9 @@ helm install fairport-ui oci://ghcr.io/fairport-io/charts/fairport-ui --namespac
 | `fairport-ui.replicaCount` | Number of replicas | `1` |
 | `fairport-ui.serviceAccount.create` | Create ServiceAccount | `true` |
 | `fairport-ui.serviceAccount.name` | ServiceAccount name | `fairport-ui` |
+| `fairport-ui.kubeconfigSecret.enabled` | Mount a Secret containing non-local kubeconfig files | `false` |
+| `fairport-ui.kubeconfigSecret.name` | Secret name for kubeconfig files | `""` |
+| `fairport-ui.kubeconfigSecret.mountPath` | Mount path used by `KUBECONFIG_SECRET_DIR` | `/var/run/secrets/fairport-ui/kubeconfigs` |
 | `fairport-ui.env` | Environment variables | `[{name: PORT, value: "8000"}, {name: NODE_ENV, value: "production"}]` |
 | `fairport-ui.extraEnv` | Additional env vars | `[]` |
 | `fairport-ui.ingress.enabled` | Enable Ingress | `false` |
