@@ -1,0 +1,97 @@
+{{- if index .Values "kube-prometheus-stack" "enabled" }}
+{{- if .Values "traefik-service-monitor" "enabled" }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: traefik-service-monitor
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: traefik-service-monitor-{{ .Release.Namespace }}
+rules:
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions"]
+  verbs: ["get", "list"]
+- apiGroups: ["monitoring.coreos.com"]
+  resources: ["servicemonitors"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: traefik-service-monitor-{{ .Release.Namespace }}
+subjects:
+- kind: ServiceAccount
+  name: traefik-service-monitor
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: traefik-service-monitor-{{ .Release.Namespace }}
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: traefik-service-monitor
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": post-upgrade,post-install
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  template:
+    spec:
+      serviceAccountName: traefik-service-monitor
+      restartPolicy: OnFailure
+      affinity: {{ index .Values "traefik-service-monitor" "affinity" | toJson }}
+      nodeSelector: {{ index .Values "traefik-service-monitor" "nodeSelector" | toJson }}
+      tolerations: {{ index .Values "traefik-service-monitor" "tolerations" | toJson }}
+      terminationGracePeriodSeconds: 0
+      containers:
+      - name: traefik-service-monitor
+        image: {{ index .Values "traefik-service-monitor" "image" }}
+        command:
+          - "/bin/sh"
+          - "-c"
+          - |
+            info () { echo "[INFO    ] $*"; }
+            crit () { echo "[CRITICAL] $*"; exit 1; }
+
+            info "Starting up"
+            MAX_RETRIES=60
+            for I in $(seq 1 $MAX_RETRIES); do
+                info "Checking if CRDs are installed [$I/$MAX_RETRIES]"
+                kubectl get crd servicemonitors.monitoring.coreos.com >/dev/null 2>&1 && break
+                [ $I -eq $MAX_RETRIES ] && crit "Failed to detect CRDs"
+                sleep 1
+            done
+
+            info "Apply object"
+            cat << EOF | kubectl apply -f -
+            apiVersion: monitoring.coreos.com/v1
+            kind: ServiceMonitor
+            metadata:
+              name: external-rke2-traefik-metrics
+              namespace: kube-system
+              labels:
+                release: rancher-monitoring 
+            spec:
+              jobLabel: traefik
+              namespaceSelector:
+                matchNames:
+                  - kube-system
+              selector:
+                matchLabels:
+                  app.kubernetes.io/name: traefik
+                  app.kubernetes.io/instance: rke2-traefik
+              endpoints:
+              - port: metrics
+                path: /metrics
+                interval: 30s
+                honorLabels: true
+            EOF
+            [ $? -ne 0 ] && crit "Failed to apply ServiceMonitor" 
+            info "Done!"
+{{- end }}
