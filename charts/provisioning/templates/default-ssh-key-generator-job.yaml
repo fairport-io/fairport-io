@@ -63,7 +63,7 @@ spec:
             crit () { echo "[CRITICAL] $*"; exit 1; }
 
             info "Starting SSH key generation job"
-            USERS_KEY_MAPPINGS="{{ range .Values.users }}{{ .username }}:{{ .authorized_keys_secret }} {{ end }}"
+            USERS_KEY_MAPPINGS="{{ range .Values.users }}{{ if .authorized_keys_secret }}{{ .username }}:{{ .authorized_keys_secret }} {{ end }}{{ end }}"
             EXISTING_SECRETS=$(kubectl -n $NAMESPACE get secrets)
 
             # Only generate keys if secret doesnt exist
