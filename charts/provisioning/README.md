@@ -81,3 +81,4 @@ rm -f /etc/resolv.conf
 echo "nameserver <your-nameserver>" > /etc/resolv.conf
 
 ```
+
