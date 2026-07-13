@@ -79,6 +79,15 @@ The following security issues were identified and fixed:
 ### New endpoints
 - `POST /api/auth/oauth/exchange` — exchanges a short-lived one-time OAuth code for a JWT
 
+## Chat Stream Robustness (2026-07-13)
+
+Hardened `/api/chat/stream` upstream SSE handling:
+
+- Buffers partial upstream `data:` lines across Node stream chunks before parsing.
+- Treats upstream `end` as a successful finish if `[DONE]` was not observed, so the per-provider queue is released.
+- Handles upstream stream `error` events and flushes SSE headers immediately.
+- Added `tests/server/chat-stream.test.ts` for split SSE chunk compatibility.
+
 ## Tech Stack
 - **Backend**: Node.js + Express + TypeScript (compiled to `dist/server.js`)
 - **Frontend**: React + TypeScript + Vite

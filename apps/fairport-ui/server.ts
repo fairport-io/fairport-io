@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import net from 'net';
+import { StringDecoder } from 'string_decoder';
 import jwt from 'jsonwebtoken';
 import axios from 'axios';
 import helmet from 'helmet';
@@ -1789,6 +1790,7 @@ app.post('/api/chat/stream', async (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders?.();
 
   const logStream = () => {
     const duration = Date.now() - startTime;
@@ -1824,86 +1826,58 @@ app.post('/api/chat/stream', async (req, res) => {
     }));
   };
 
-  try {
-    const response = await axios.post(`${provider.base_url}/chat/completions`, {
-      model: provider.models.split(',')[0].trim(),
-      messages,
-      stream: true
-    }, {
-      headers: { 'Authorization': `Bearer ${resolveProviderApiKey(provider)}` },
-      responseType: 'stream'
-    });
+  let streamFinished = false;
+  let sseBuffer = "";
+  const sseDecoder = new StringDecoder('utf8');
 
-    response.data.on('data', async (chunk: Buffer) => {
-      const lines = chunk.toString().split('\n');
-      for (const line of lines) {
-        if (!line.trim() || !line.startsWith('data: ')) continue;
-        const rawData = line.slice(6).trim();
-        
-        if (rawData === '[DONE]') {
-          // Store assistant message when stream finishes
-          if (CHAT_PERSISTENCE === 'server') {
-            db.messages.push({
-              id: crypto.randomUUID(),
-              user_id: user.id,
-              role: 'assistant',
-              content: assistantContent,
-              thinking_content: thinkingContent,
-              timestamp: Date.now()
-            });
-          }
-          outputTokens = Math.ceil((assistantContent + thinkingContent).length / 4);
-          // Record usage event
-          const modelId = provider.models.split(',')[0].trim();
-          db.usage_events.push({
-            id: `usage-event-id-${crypto.randomUUID()}`,
-            api_key_id: apiKey.id,
-            model_id: modelId,
-            provider_id: provider.id,
-            user_id: user.id,
-            group_id: apiKey.group_id || null,
-            timestamp: Math.floor(Date.now() / 1000),
-            input_tokens: inputTokens,
-            output_tokens: outputTokens,
-            source: 'UI',
-          });
-          await saveDb(db);
-          const duration = Date.now() - startTime;
-          const tps = duration > 0 ? (outputTokens / (duration / 1000)).toFixed(2) : '0';
-          const responseTime = duration;
-          res.write(`data: ${JSON.stringify({ type: 'done', requestId, inputTokens, outputTokens, tokensPerSecond: parseFloat(tps), ttft: firstTokenTime, responseTime, rateLimitRemaining: rateLimitResult.remaining, rateLimitLimit: rateLimitResult.limit, rateLimitUnit: rateLimitResult.unit, rateLimitWindows: rateLimitResult.windows })}\n\n`);
-          requestQueue.dequeue(queueKey);
-          logStream();
-          return;
-        }
-        
-        try {
-          const json = JSON.parse(rawData);
-          const delta = json.choices[0].delta;
+  const finishStream = async () => {
+    if (streamFinished) return;
+    streamFinished = true;
 
-          // Track TTFT on the very first upstream token (content or thinking)
-          if (firstTokenTime === 0 && (delta.content || delta.reasoning_content || delta.thinking || delta.reasoning)) {
-            firstTokenTime = Date.now() - startTime;
-          }
-
-          if (delta.content) {
-            assistantContent += delta.content;
-            res.write(`data: ${JSON.stringify({ type: 'response', content: delta.content })}\n\n`);
-          }
-          // Handle reasoning/thinking content from models like Claude, o1, etc.
-          if (delta.reasoning_content || delta.thinking || delta.reasoning) {
-            const tc = delta.reasoning_content || delta.thinking || delta.reasoning;
-            thinkingContent += tc;
-            res.write(`data: ${JSON.stringify({ type: 'thinking', content: tc })}\n\n`);
-          }
-        } catch (e) {}
+    try {
+      // Store assistant message when stream finishes
+      if (CHAT_PERSISTENCE === 'server') {
+        db.messages.push({
+          id: crypto.randomUUID(),
+          user_id: user.id,
+          role: 'assistant',
+          content: assistantContent,
+          thinking_content: thinkingContent,
+          timestamp: Date.now()
+        });
       }
-    });
+      outputTokens = Math.ceil((assistantContent + thinkingContent).length / 4);
+      // Record usage event
+      const modelId = provider.models.split(',')[0].trim();
+      db.usage_events.push({
+        id: `usage-event-id-${crypto.randomUUID()}`,
+        api_key_id: apiKey.id,
+        model_id: modelId,
+        provider_id: provider.id,
+        user_id: user.id,
+        group_id: apiKey.group_id || null,
+        timestamp: Math.floor(Date.now() / 1000),
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        source: 'UI',
+      });
+      await saveDb(db);
+      const duration = Date.now() - startTime;
+      const tps = duration > 0 ? (outputTokens / (duration / 1000)).toFixed(2) : '0';
+      const responseTime = duration;
+      if (!res.writableEnded) {
+        res.write(`data: ${JSON.stringify({ type: 'done', requestId, inputTokens, outputTokens, tokensPerSecond: parseFloat(tps), ttft: firstTokenTime, responseTime, rateLimitRemaining: rateLimitResult.remaining, rateLimitLimit: rateLimitResult.limit, rateLimitUnit: rateLimitResult.unit, rateLimitWindows: rateLimitResult.windows })}\n\n`);
+      }
+    } finally {
+      requestQueue.dequeue(queueKey);
+      logStream();
+      if (!res.writableEnded) res.end();
+    }
+  };
 
-    response.data.on('end', () => {
-      res.end();
-    });
-  } catch (err: any) {
+  const failStream = (err: any) => {
+    if (streamFinished) return;
+    streamFinished = true;
     requestQueue.dequeue(queueKey);
     const duration = Date.now() - startTime;
     console.log(JSON.stringify({
@@ -1919,8 +1893,72 @@ app.post('/api/chat/stream', async (req, res) => {
       duration_ms: duration,
       error: err.message
     }));
-    res.write(`data: ${JSON.stringify({ type: 'response', content: `Error: ${err.message}` })}\n\n`);
-    res.end();
+    if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify({ type: 'response', content: `Error: ${err.message}` })}\n\n`);
+      res.end();
+    }
+  };
+
+  const processSseLine = (line: string) => {
+    if (streamFinished || !line.trim() || !line.startsWith('data:')) return;
+    const rawData = line.slice(5).trim();
+
+    if (rawData === '[DONE]') {
+      void finishStream();
+      return;
+    }
+
+    try {
+      const json = JSON.parse(rawData);
+      const delta = json.choices?.[0]?.delta || {};
+
+      // Track TTFT on the very first upstream token (content or thinking)
+      if (firstTokenTime === 0 && (delta.content || delta.reasoning_content || delta.thinking || delta.reasoning)) {
+        firstTokenTime = Date.now() - startTime;
+      }
+
+      if (delta.content) {
+        assistantContent += delta.content;
+        res.write(`data: ${JSON.stringify({ type: 'response', content: delta.content })}\n\n`);
+      }
+      // Handle reasoning/thinking content from models like Claude, o1, etc.
+      if (delta.reasoning_content || delta.thinking || delta.reasoning) {
+        const tc = delta.reasoning_content || delta.thinking || delta.reasoning;
+        thinkingContent += tc;
+        res.write(`data: ${JSON.stringify({ type: 'thinking', content: tc })}\n\n`);
+      }
+    } catch (e) {}
+  };
+
+  try {
+    const response = await axios.post(`${provider.base_url}/chat/completions`, {
+      model: provider.models.split(',')[0].trim(),
+      messages,
+      stream: true
+    }, {
+      headers: { 'Authorization': `Bearer ${resolveProviderApiKey(provider)}` },
+      responseType: 'stream'
+    });
+
+    response.data.on('data', (chunk: Buffer) => {
+      sseBuffer += sseDecoder.write(chunk);
+      const lines = sseBuffer.split(/\r?\n/);
+      sseBuffer = lines.pop() || "";
+      for (const line of lines) processSseLine(line);
+    });
+
+    response.data.on('error', failStream);
+
+    response.data.on('end', () => {
+      sseBuffer += sseDecoder.end();
+      if (sseBuffer.trim()) {
+        processSseLine(sseBuffer);
+        sseBuffer = "";
+      }
+      void finishStream();
+    });
+  } catch (err: any) {
+    failStream(err);
   }
 });
 

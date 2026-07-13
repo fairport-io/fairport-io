@@ -77,7 +77,7 @@ Definitions
 | State | Suite | Endpoint          | Method | Test |
 |-------|-------|-------------------|--------|------|
 | -     |       | /api/chat/stream  | POST   | requires valid auth + API key |
-| -     |       | /api/chat/stream  | POST   | forwards to provider and streams response chunks |
+| ✅    | vi    | /api/chat/stream  | POST   | forwards to provider and streams split SSE response chunks — chat-stream.test.ts |
 | -     |       | /api/chat/stream  | POST   | thinking/reasoning content streamed separately |
 | -     |       | /api/chat/stream  | POST   | TTFT tracked on first token |
 | -     |       | /api/chat/stream  | POST   | input token limit enforced (400) |
