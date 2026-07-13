@@ -11,13 +11,16 @@ cert-manager:
   #   kind: ClusterIssuer
   #   metadata:
   #     name: letsencrypt-prod
+  #     annotations:
+  #       helm.sh/hook: post-install
+  #       helm.sh/hook-weight: "5"
   #   spec:
   #     acme:
-  #       email: devops@d-matrix.ai
+  #       email: admin@example.com
   #       server: https://acme-v02.api.letsencrypt.org/directory
   #       privateKeySecretRef:
   #         name: letsencrypt-prod-account-key
   #       solvers:
-  #       - http01:
-  #           ingress:
-  #             ingressClassName: traefik
+  #         - http01:
+  #             ingress:
+  #               ingressClassName: traefik
