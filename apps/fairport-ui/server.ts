@@ -32,6 +32,8 @@ const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('he
 const JWT_EXPIRY = process.env.JWT_EXPIRY || '24h';
 const CHAT_PERSISTENCE = process.env.CHAT_PERSISTENCE || 'client';
 const SIGNUPS_ENABLED = process.env.SIGNUPS_ENABLED !== 'false';
+const SIGNUP_ALLOWED_EMAILS = new Set((process.env.SIGNUP_ALLOWED_EMAILS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
+const SIGNUP_ALLOWED_DOMAINS = new Set((process.env.SIGNUP_ALLOWED_DOMAINS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean));
 const APP_CONFIG = {
   app_name: process.env.APP_NAME || "Chat",
   default_provider_name: process.env.DEFAULT_PROVIDER_NAME || "default",
@@ -113,6 +115,14 @@ const BOOTSTRAP_ADMIN_EMAILS = (process.env.BOOTSTRAP_ADMIN_EMAILS || '').split(
 const MAX_INPUT_TOKENS = 100000;
 const estimateTokens = (messages: any[]) =>
   messages.reduce((sum: number, m: any) => sum + Math.ceil((m.content?.length || 0) / 4), 0);
+
+function isSignupAllowed(email: string): boolean {
+  if (SIGNUP_ALLOWED_EMAILS.size === 0 && SIGNUP_ALLOWED_DOMAINS.size === 0) return true;
+  const normalized = email.trim().toLowerCase();
+  const parts = normalized.split('@');
+  return SIGNUP_ALLOWED_EMAILS.has(normalized)
+    || (parts.length === 2 && Boolean(parts[0]) && SIGNUP_ALLOWED_DOMAINS.has(parts[1]));
+}
 
 function slugify(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9-]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
@@ -812,14 +822,17 @@ app.post('/api/auth/signup', async (req, res) => {
     return res.status(403).json({ detail: "Signups are disabled." });
   }
 
-  const username = req.body.username?.toLowerCase();
+  const username = typeof req.body.username === 'string' ? req.body.username.trim().toLowerCase() : '';
   const password = req.body.password;
-  if (!username || !password || password.length < 8) {
+  if (!username || typeof password !== 'string' || password.length < 8) {
     return res.status(400).json({ detail: "Invalid data" });
   }
   const db = await loadDb();
   if (db.users.some((u: any) => u.name.toLowerCase() === username)) {
     return res.status(409).json({ detail: "User exists" });
+  }
+  if (!isSignupAllowed(username)) {
+    return res.status(403).json({ detail: "Signup is not allowed for this email address." });
   }
   
   const userId = `user-id-${crypto.randomUUID()}`;
@@ -1010,17 +1023,26 @@ app.get('/api/auth/oauth/callback', async (req, res) => {
       return res.status(400).send("Could not determine user identity from provider");
     }
 
+    email = email.trim().toLowerCase();
     const db = await loadDb();
-    let user = db.users.find((u: any) => u.name === email);
+    let user = db.users.find((u: any) => u.name.toLowerCase() === email);
 
     if (!user) {
+      if (!SIGNUPS_ENABLED) {
+        return res.status(403).send("Signups are disabled.");
+      }
+      if (!isSignupAllowed(email)) {
+        return res.status(403).send("Signup is not allowed for this email address.");
+      }
+
       const userId = `user-id-${crypto.randomUUID()}`;
-      db.users.push({
+      user = {
         id: userId,
         name: email,
         password_hash: '',
         oauth_provider: providerId,
-      });
+      };
+      db.users.push(user);
 
       const rawKey = `sk-${crypto.randomBytes(16).toString('hex')}`;
       db.api_keys.push({

@@ -88,6 +88,13 @@ Hardened `/api/chat/stream` upstream SSE handling:
 - Handles upstream stream `error` events and flushes SSE headers immediately.
 - Added `tests/server/chat-stream.test.ts` for split SSE chunk compatibility.
 
+## Signup Allowlist (2026-07-14)
+
+- `SIGNUP_ALLOWED_EMAILS` and `SIGNUP_ALLOWED_DOMAINS` are optional comma-separated, case-insensitive allowlists combined with OR semantics.
+- Domain matching is exact; subdomains must be listed separately. Empty lists preserve unrestricted signup.
+- The shared check covers password and OAuth user creation, but not existing-user login. OAuth emails are normalized before lookup.
+- Password signup does not verify email ownership, so deployments using the allowlist as an access boundary should use an identity provider that supplies verified email addresses.
+
 ## Tech Stack
 - **Backend**: Node.js + Express + TypeScript (compiled to `dist/server.js`)
 - **Frontend**: React + TypeScript + Vite

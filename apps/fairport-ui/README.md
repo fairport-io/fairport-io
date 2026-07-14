@@ -69,6 +69,7 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | Category | Feature |
 |----------|---------|
 | **Auth** | Login / Signup with JWT tokens (no session cookies) |
+| **Auth** | Optional case-insensitive signup allowlists for exact emails or domains |
 | **Auth** | Logout |
 | **Auth** | Bearer token API key auth for OpenAI-compatible endpoint |
 | **Auth** | bcrypt-hashed API keys with prefix lookup |
@@ -176,6 +177,8 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | `CHAT_PERSISTENCE` | `client` | Message storage mode: `client` stores in browser localStorage, `server` stores in `db.yaml` |
 | `APP_URL` | `` | Public URL of the app (used for OAuth redirect URIs; auto-detected if behind proxy) |
 | `SIGNUPS_ENABLED` | `true` | Set to `false` to disable new user registration (login unaffected) |
+| `SIGNUP_ALLOWED_EMAILS` | `` | Comma-separated exact email addresses allowed to create accounts; combined with `SIGNUP_ALLOWED_DOMAINS` using OR semantics |
+| `SIGNUP_ALLOWED_DOMAINS` | `` | Comma-separated exact email domains allowed to create accounts; subdomains must be listed separately |
 | `BOOTSTRAP_ADMIN_EMAILS` | `` | Comma-separated emails granted Global Admin role on login/signup (full `*` permissions) |
 | `TRUST_PROXY` | `` | Set to `1` (or a number/string) to enable reverse-proxy IP trust for correct client IP detection |
 | `AUTH_RATE_LIMIT_MAX` | `10` | Max failed auth attempts per IP before rate limiting kicks in |
@@ -186,6 +189,8 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | `PGDATABASE` | `fairport-ui` | PostgreSQL database name |
 | `PGUSER` | `` | PostgreSQL user (required when `DATABASE_TYPE=postgres`) |
 | `PGPASSWORD` | `` | PostgreSQL password (required when `DATABASE_TYPE=postgres`) |
+
+Signup allowlist matching is case-insensitive and applies to password and OAuth account creation. When both allowlists are empty, signup remains unrestricted. Existing users can still log in after the allowlists change. Password signup does not verify ownership of the submitted email address; use an identity provider that returns a verified email when the allowlist is an access-control boundary.
 
 ## Database
 
