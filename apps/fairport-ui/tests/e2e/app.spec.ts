@@ -99,17 +99,13 @@ test('keys: creates new key and shows one-time modal', async () => {
   await sharedPage.getByPlaceholder('e.g. Production API').fill('my-key');
   await sharedPage.getByRole('button', { name: 'Create Key' }).click();
   const modal = sharedPage.locator('[role="dialog"]');
-  const isVisible = await modal.isVisible({ timeout: 15000 }).catch(() => false);
-  if (isVisible) {
-    await expect(modal).toBeVisible();
-    await expect(modal.getByRole('button', { name: 'Copy Key' })).toBeVisible();
-    await sharedPage.getByRole('button', { name: 'Done' }).click();
-    await expect(modal).not.toBeVisible();
-    await cleanModals();
-  }
+  await expect(modal).toBeVisible();
+  await expect(modal.getByRole('button', { name: 'Copy Key' })).toBeVisible();
+  await modal.getByRole('button', { name: 'Done' }).click();
+  await expect(modal).not.toBeVisible();
 });
 
-test.skip('keys: deletes a key', async () => {
+test('keys: deletes a key', async () => {
   await cleanModals();
   await sharedPage.getByRole('button', { name: 'API' }).click();
   await sharedPage.waitForTimeout(200);
@@ -118,9 +114,10 @@ test.skip('keys: deletes a key', async () => {
   await sharedPage.keyboard.press('Delete');
   await sharedPage.getByPlaceholder('e.g. Production API').fill('delete-me-key');
   await sharedPage.getByRole('button', { name: 'Create Key' }).click();
-  await sharedPage.waitForTimeout(300);
-  await sharedPage.getByRole('button', { name: 'Delete' }).first().click();
-  await expect(sharedPage.locator('text=delete-me-key').first()).not.toBeVisible();
+  await sharedPage.getByRole('button', { name: 'Done' }).click();
+  const keyRow = sharedPage.getByText('delete-me-key').locator('xpath=ancestor::div[.//button[@aria-label="Delete"]][1]');
+  await keyRow.getByRole('button', { name: 'Delete' }).click();
+  await expect(sharedPage.getByText('delete-me-key')).not.toBeVisible();
 });
 
 test('keys: code samples toggle between curl and python', async () => {

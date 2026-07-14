@@ -927,8 +927,9 @@ export default function App() {
   };
 
   const removeApiKey = async (id: string) => {
-    await fetch(`/api/keys/${id}`, { method: 'DELETE' });
-    loadKeys();
+    const groupId = activeIdentity?.type === 'group' ? activeIdentity.id : undefined;
+    const res = await fetch(`/api/keys/${id}`, { method: 'DELETE', headers: { ...authHeaders() } });
+    if (res.ok) await loadKeys(groupId);
   };
 
   // --- Provider Handlers ---
