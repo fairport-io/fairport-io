@@ -110,6 +110,9 @@ describe('DELETE /api/keys/:id', () => {
       .set(auth());
 
     expect(res.status).toBe(200);
+
+    const keys = await request(app).get('/api/keys').set(auth());
+    expect(keys.body.some((key: any) => key.id === keyId)).toBe(false);
   });
 
   it('returns 404 for non-existent key', async () => {
