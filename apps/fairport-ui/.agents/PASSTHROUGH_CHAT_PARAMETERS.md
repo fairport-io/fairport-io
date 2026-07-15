@@ -1,5 +1,5 @@
 ## Objective
-Pass unrecognized chat-completion JSON parameters through Fairport to the configured upstream provider for both API and UI streaming requests, with per-chat Extra Parameters controls in the Chat UI.
+Pass chat-completion parameters through Fairport to the configured upstream provider, including OpenAI-compatible SSE streaming from `/v1/chat/completions`, with per-chat Extra Parameters controls in the Chat UI.
 
 ## Requirements
 ### Setup
@@ -30,6 +30,14 @@ Pass unrecognized chat-completion JSON parameters through Fairport to the config
 - [x] Clear parameters with Clear History and logout so they do not outlive the chat session
 - [x] Match existing light/dark styling and remain usable on mobile and desktop
 
+### OpenAI-Compatible API Streaming
+- [x] Accept the strict boolean `stream: true` on `/v1/chat/completions`
+- [x] Forward `stream: true` and other passthrough fields to the selected provider
+- [x] Relay upstream SSE bytes without applying the Chat UI event transformation
+- [x] Preserve the existing JSON response path when `stream` is false, omitted, or not the boolean `true`
+- [x] Release the request queue on `[DONE]`, upstream end/error, and client disconnect
+- [x] Preserve API usage recording and completion logging for successful streams
+
 ### Tests
 - [x] Add regression coverage for passthrough parameters on both endpoints
 - [x] Verify Fairport-only fields are not forwarded
@@ -37,6 +45,15 @@ Pass unrecognized chat-completion JSON parameters through Fairport to the config
 - [x] Cover Extra Parameters modal validation and typed request payloads
 - [x] Cover refresh persistence and Clear History cleanup
 - [x] Cover the responsive modal layout on a mobile viewport
+- [x] Cover OpenAI-compatible SSE passthrough and authoritative streaming fields
+- [x] Cover split SSE chunks and queue cleanup after a completed API stream
+- [x] Keep non-streaming API regression coverage passing
+
+### Streaming Extension Verification
+- [x] `make build` passes after the streaming extension
+- [x] `make test` passes after the streaming extension
+- [x] Review `git diff origin/main` for streaming-extension scope
+- [x] Update relevant `.md` files for the next agent
 
 ### Verification
 - [x] `make build` passes
@@ -46,12 +63,11 @@ Pass unrecognized chat-completion JSON parameters through Fairport to the config
 - [x] Check this file again to ensure all requirements are met
 
 ## Agent Plan
-1. Reuse the existing per-user chat-history lifecycle for Extra Parameters persistence and cleanup.
-2. Add the smallest responsive modal using the current component styling and accessible labels.
-3. Validate draft rows on Save and store parsed JSON values for subsequent chat requests.
-4. Spread saved parameters into the UI request before Fairport-controlled fields.
-5. Add focused Playwright coverage for validation, typed payloads, refresh/clear behavior, and mobile layout.
-6. Update relevant documentation, run `make build` and `make test`, and review `git diff origin/main`.
+1. Reuse the existing `/v1/chat/completions` authentication, provider selection, rate limit, queue, logging, and usage flow.
+2. Add a strict `stream === true` branch that forwards provider SSE bytes unchanged while parsing a copy for usage accounting.
+3. Make stream finalization idempotent across `[DONE]`, end, error, and client disconnect so the queue is always released once.
+4. Add focused server tests for passthrough fields, split SSE chunks, and the unchanged non-streaming path.
+5. Update documentation, run `make build` and `make test`, and review `git diff origin/main`.
 
 ## Agent Implementation Details
 - Added shared `buildProviderChatBody()` handling for both chat endpoints. It removes Fairport-only provider selectors, preserves all other top-level fields, and applies server-controlled values last.
@@ -59,6 +75,10 @@ Pass unrecognized chat-completion JSON parameters through Fairport to the config
 - Added an accessible, responsive `Extra Parameters` modal to the Chat page with an active-count trigger and existing light/dark visual patterns.
 - Extra values are JSON-parsed, validated against duplicates and reserved fields, stored per user alongside the current chat lifecycle, and applied to subsequent UI requests before controlled request fields.
 - Added Playwright coverage for validation, typed forwarding, refresh persistence, Clear History cleanup, and a 375x667 mobile viewport.
-- `make build` passes and all 79 Vitest server tests pass.
+- `make build` passes and all 80 Vitest server tests pass.
 - Fixed the key-deletion Playwright locator to scope both the click and disappearance assertion to the exact key row.
-- Full `make test` passes: 79 Vitest tests and 22 Playwright tests passed; 5 Playwright tests remain intentionally skipped.
+- Full `make test` passes: 80 Vitest tests and 22 Playwright tests passed; 5 Playwright tests remain intentionally skipped.
+- Added strict boolean `stream: true` support to `/v1/chat/completions`; provider SSE bytes are relayed unchanged while a parsed copy captures usage and output for accounting.
+- Streaming finalization is idempotent so `[DONE]`, upstream end/error, and client disconnect release the provider queue exactly once.
+- Added regression coverage for split SSE chunks, passthrough fields, provider-selector filtering, upstream usage accounting, and immediate queue reuse.
+- Final verification passes: `make build`; `make test` with 80 Vitest tests and 22 Playwright tests passed, with 5 intentionally skipped.

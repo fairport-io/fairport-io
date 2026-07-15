@@ -84,11 +84,13 @@ The following security issues were identified and fixed:
 Both `/api/chat/stream` and `/v1/chat/completions` now preserve unrecognized top-level request fields when forwarding to the selected provider.
 
 - `provider` and `provider_id` remain Fairport-only and are not forwarded.
-- Fairport applies its resolved `model`, `messages`, and `stream` after passthrough fields so those values remain authoritative.
+- Fairport applies its resolved `model`, `messages`, and validated stream mode after passthrough fields so those values remain authoritative.
 - The Chat page has a responsive `Extra Parameters` modal. Values are parsed as JSON, saved per user with the current chat, and included in subsequent requests.
 - Clear History and logout remove the saved parameters; reserved Fairport fields, duplicate keys, empty keys, and invalid JSON are rejected.
 - `tests/server/chat-stream.test.ts` covers nested passthrough values and server-controlled fields for both endpoints.
 - `tests/e2e/app.spec.ts` covers modal validation, typed payloads, refresh persistence, Clear History cleanup, and the mobile layout.
+- `/v1/chat/completions` accepts strict boolean `stream: true` and relays provider SSE bytes without the Chat UI event transformation.
+- API stream finalization records usage and releases the queue once on `[DONE]`, upstream end/error, or client disconnect.
 
 ## Chat Stream Robustness (2026-07-13)
 
@@ -181,7 +183,7 @@ Hardened `/api/chat/stream` upstream SSE handling:
 
 ### Chat
 - `POST /api/chat/stream` - SSE streaming endpoint (session auth)
-- `POST /v1/chat/completions` - OpenAI-compatible non-streaming (Bearer auth)
+- `POST /v1/chat/completions` - OpenAI-compatible streaming and non-streaming (Bearer auth)
 
 ### Rate Limiting
 - Per-user-per-model in-memory sliding window (`RateLimiter` class in server.ts)
@@ -270,7 +272,7 @@ Hardened `/api/chat/stream` upstream SSE handling:
 - React curly braces `{}` in JSX - use `{{}}` for object literals
 - Modal placement matters - must be outside conditional tab renders
 - API key is returned only on creation - after that it's hashed
-- `/v1/chat/completions` is non-streaming only
+- `/v1/chat/completions` streams only for strict boolean `stream: true`; omitted, false, or non-boolean values use the JSON response path
 - Duplicate key names are prevented per user (409 Conflict)
 - `DEFAULT_PROVIDER_MODELS` env var renamed to `DEFAULT_PROVIDER_MODEL` (singular)
 - New env vars: `DEFAULT_PROVIDER_MODEL_IN_PRICE_1M`, `DEFAULT_PROVIDER_MODEL_OUT_PRICE_1M` (default 0) for model cost tracking, `DEFAULT_PROVIDER_MODEL_QUEUE_MAX_SIZE` (default 5)
