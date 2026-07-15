@@ -68,6 +68,7 @@ Definitions
 | ✅    | pw    | /chat    | -    | clicking example prompt fills input — app.spec.ts |
 | ✅    | pw    | /chat    | -    | send message and show typing indicator — app.spec.ts |
 | ✅    | pw    | /chat    | -    | clear chat with confirmation — app.spec.ts |
+| ✅    | pw    | /chat    | POST | Extra Parameters validate typed JSON, persist across refresh, forward with chat requests, clear with history, and fit a mobile viewport — app.spec.ts |
 | ✅    | pw    | /chat    | -    | sidebar tabs navigate and update URL — app.spec.ts |
 | ✅    | pw    | /chat    | -    | active tab persists across refresh — app.spec.ts |
 | -     |       | /chat    | -    | chat history stored per-user in localStorage |
@@ -78,6 +79,7 @@ Definitions
 |-------|-------|-------------------|--------|------|
 | -     |       | /api/chat/stream  | POST   | requires valid auth + API key |
 | ✅    | vi    | /api/chat/stream  | POST   | forwards to provider and streams split SSE response chunks — chat-stream.test.ts |
+| ✅    | vi    | /api/chat/stream  | POST   | passes through nested parameters, strips provider selectors, and controls model/messages/stream — chat-stream.test.ts |
 | -     |       | /api/chat/stream  | POST   | thinking/reasoning content streamed separately |
 | -     |       | /api/chat/stream  | POST   | TTFT tracked on first token |
 | -     |       | /api/chat/stream  | POST   | input token limit enforced (400) |
@@ -89,6 +91,7 @@ Definitions
 | State | Suite | Endpoint                | Method | Test |
 |-------|-------|-------------------------|--------|------|
 | -     |       | /v1/chat/completions    | POST   | requires Bearer API key auth |
+| ✅    | vi    | /v1/chat/completions    | POST   | passes through nested parameters, strips provider selectors, and controls model/messages/stream — chat-stream.test.ts |
 | -     |       | /v1/chat/completions    | POST   | non-streaming only (stream=true returns 400) |
 | -     |       | /v1/chat/completions    | POST   | returns OpenAI-format response |
 | -     |       | /v1/chat/completions    | POST   | usage event recorded |
@@ -98,7 +101,7 @@ Definitions
 |-------|-------|-------------|--------|------|
 | ✅    | pw    | /api        | -    | shows registered keys in table — app.spec.ts |
 | ✅    | pw    | /api        | -    | creates new key and shows one-time modal — app.spec.ts |
-| ❌    | pw    | /api        | -    | deletes a key (flaky, skipped) |
+| ✅    | pw    | /api        | -    | deletes the targeted key row — app.spec.ts |
 | ❌    | pw    | /api        | -    | enforces max 5 keys (flaky, skipped) |
 | ❌    | pw    | /providers  | -    | creates a new provider (flaky, skipped) |
 | -     | pw    | /providers  | -    | immutable provider cannot be edited/deleted |

@@ -83,6 +83,7 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | **Providers** | Inline table editing with rate limits column |
 | **Providers** | Active provider selector in header bar |
 | **Chat** | SSE streaming chat |
+| **Chat** | Per-chat Extra Parameters modal with typed JSON values, refresh persistence, and reserved-field protection |
 | **Chat** | Client-side persistence (browser localStorage) via `CHAT_PERSISTENCE=client` — no server-side message storage |
 | **Chat** | Server-side persistence (db.yaml) via `CHAT_PERSISTENCE=server` |
 | **Chat** | Rich Markdown rendering (headings, code blocks, tables, lists, blockquotes) |
@@ -131,6 +132,7 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | **Settings** | Preferences persisted to localStorage |
 | **API** | `POST /v1/chat/completions` (non-streaming, Bearer auth) |
 | **API** | `POST /api/chat/stream` (SSE streaming, session auth) |
+| **API** | Unrecognized top-level chat parameters pass through to providers; Fairport selection fields are stripped |
 | **Logging** | JSON request logging to stdout |
 | **Logging** | Request IDs via `crypto.randomUUID()` |
 | **Logging** | Chat endpoints get start + end log entries |

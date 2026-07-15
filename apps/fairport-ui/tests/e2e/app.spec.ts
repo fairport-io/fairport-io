@@ -61,6 +61,78 @@ test('chat: clear chat with confirmation', async () => {
   await expect(sharedPage.getByText('Welcome to')).toBeVisible();
 });
 
+test('chat: extra parameters validate, persist, forward, and clear responsively', async () => {
+  const trigger = sharedPage.getByRole('button', { name: /Extra Parameters/ });
+  await trigger.click();
+
+  let modal = sharedPage.getByRole('dialog', { name: 'Extra Parameters' });
+  await expect(modal).toBeVisible();
+  await modal.getByLabel('Parameter key 1').fill('model');
+  await modal.getByLabel('Parameter value 1').fill('"override"');
+  await modal.getByRole('button', { name: 'Save Parameters' }).click();
+  await expect(modal.getByRole('alert')).toContainText('controlled by Fairport');
+
+  await modal.getByLabel('Parameter key 1').fill('max_tokens');
+  await modal.getByLabel('Parameter value 1').fill('not-json');
+  await modal.getByRole('button', { name: 'Save Parameters' }).click();
+  await expect(modal.getByRole('alert')).toContainText('valid JSON value');
+
+  await modal.getByLabel('Parameter value 1').fill('256');
+  await modal.getByRole('button', { name: 'Add Parameter' }).click();
+  await modal.getByLabel('Parameter key 2').fill('response_format');
+  await modal.getByLabel('Parameter value 2').fill('{"type":"json_object"}');
+  await modal.getByRole('button', { name: 'Save Parameters' }).click();
+  await expect(modal).not.toBeVisible();
+  await expect(trigger).toContainText('2');
+
+  let forwardedBody: any;
+  await sharedPage.route('**/api/chat/stream', async route => {
+    forwardedBody = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: 'data: {"type":"response","content":"configured"}\n\ndata: {"type":"done"}\n\n',
+    });
+  });
+
+  await sharedPage.locator('textarea').fill('Use my parameters');
+  await sharedPage.getByRole('button', { name: 'Send' }).click();
+  await expect.poll(() => forwardedBody).toBeTruthy();
+  expect(forwardedBody.max_tokens).toBe(256);
+  expect(forwardedBody.response_format).toEqual({ type: 'json_object' });
+  expect(forwardedBody.model).toBeUndefined();
+  expect(forwardedBody.messages).toEqual(expect.arrayContaining([
+    expect.objectContaining({ role: 'user', content: 'Use my parameters' }),
+  ]));
+  await sharedPage.unroute('**/api/chat/stream');
+
+  await sharedPage.reload();
+  await sharedPage.waitForURL(/\/chat$/, { timeout: 10000 });
+  const reloadedTrigger = sharedPage.getByRole('button', { name: /Extra Parameters/ });
+  await expect(reloadedTrigger).toContainText('2');
+  await reloadedTrigger.click();
+  modal = sharedPage.getByRole('dialog', { name: 'Extra Parameters' });
+  await expect(modal.getByLabel('Parameter key 1')).toHaveValue('max_tokens');
+  await expect(modal.getByLabel('Parameter value 1')).toHaveValue('256');
+
+  await sharedPage.setViewportSize({ width: 375, height: 667 });
+  const mobileBox = await modal.boundingBox();
+  expect(mobileBox).not.toBeNull();
+  expect(mobileBox!.x).toBeGreaterThanOrEqual(0);
+  expect(mobileBox!.width).toBeLessThanOrEqual(375);
+  expect(mobileBox!.height).toBeLessThanOrEqual(667);
+  await expect(modal.getByRole('button', { name: 'Save Parameters' })).toBeVisible();
+  await modal.getByRole('button', { name: 'Cancel' }).click();
+  await sharedPage.setViewportSize({ width: 1280, height: 720 });
+
+  await sharedPage.getByRole('button', { name: 'Clear History' }).click();
+  await expect(sharedPage.getByText('Welcome to')).toBeVisible();
+  await sharedPage.getByRole('button', { name: /Extra Parameters/ }).click();
+  modal = sharedPage.getByRole('dialog', { name: 'Extra Parameters' });
+  await expect(modal.getByLabel('Parameter key 1')).toHaveValue('');
+  await modal.getByRole('button', { name: 'Cancel' }).click();
+});
+
 test('nav: sidebar tabs navigate and update URL', async () => {
   const tabs = [
     { label: 'Chat', path: '/chat' },
@@ -115,9 +187,9 @@ test('keys: deletes a key', async () => {
   await sharedPage.getByPlaceholder('e.g. Production API').fill('delete-me-key');
   await sharedPage.getByRole('button', { name: 'Create Key' }).click();
   await sharedPage.getByRole('button', { name: 'Done' }).click();
-  const keyRow = sharedPage.getByText('delete-me-key').locator('xpath=ancestor::div[.//button[@aria-label="Delete"]][1]');
+  const keyRow = sharedPage.getByText('delete-me-key', { exact: true }).locator('xpath=ancestor::div[./div/button[@aria-label="Delete"]][1]');
   await keyRow.getByRole('button', { name: 'Delete' }).click();
-  await expect(sharedPage.getByText('delete-me-key')).not.toBeVisible();
+  await expect(keyRow).not.toBeVisible();
 });
 
 test('keys: code samples toggle between curl and python', async () => {
