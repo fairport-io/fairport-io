@@ -83,6 +83,7 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | **Providers** | Inline table editing with rate limits column |
 | **Providers** | Active provider selector in header bar |
 | **Chat** | SSE streaming chat |
+| **Chat** | Per-chat Extra Parameters modal with typed JSON values, refresh persistence, and reserved-field protection |
 | **Chat** | Client-side persistence (browser localStorage) via `CHAT_PERSISTENCE=client` — no server-side message storage |
 | **Chat** | Server-side persistence (db.yaml) via `CHAT_PERSISTENCE=server` |
 | **Chat** | Rich Markdown rendering (headings, code blocks, tables, lists, blockquotes) |

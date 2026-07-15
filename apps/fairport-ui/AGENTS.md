@@ -85,7 +85,10 @@ Both `/api/chat/stream` and `/v1/chat/completions` now preserve unrecognized top
 
 - `provider` and `provider_id` remain Fairport-only and are not forwarded.
 - Fairport applies its resolved `model`, `messages`, and `stream` after passthrough fields so those values remain authoritative.
+- The Chat page has a responsive `Extra Parameters` modal. Values are parsed as JSON, saved per user with the current chat, and included in subsequent requests.
+- Clear History and logout remove the saved parameters; reserved Fairport fields, duplicate keys, empty keys, and invalid JSON are rejected.
 - `tests/server/chat-stream.test.ts` covers nested passthrough values and server-controlled fields for both endpoints.
+- `tests/e2e/app.spec.ts` covers modal validation, typed payloads, refresh persistence, Clear History cleanup, and the mobile layout.
 
 ## Chat Stream Robustness (2026-07-13)
 

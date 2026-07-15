@@ -31,7 +31,8 @@ import {
   Menu,
   DollarSign,
   Users,
-  Rocket
+  Rocket,
+  SlidersHorizontal
 } from 'lucide-react';
 // --- Error Boundary ---
 class ErrorBoundary extends Component<{ children: ReactNode; fallback?: ReactNode }, { hasError: boolean; error?: Error }> {
@@ -154,6 +155,12 @@ interface Provider {
   queue_max_size?: number;
 }
 
+interface ExtraParameterDraft {
+  id: string;
+  key: string;
+  value: string;
+}
+
 type Tab = 'chat' | 'api' | 'providers' | 'groups' | 'usage' | 'settings' | 'deployments';
 type Theme = 'light' | 'dark' | 'system';
 
@@ -192,11 +199,13 @@ const OAUTH_PROVIDER_ICONS: Record<string, string> = {
 };
 const STORAGE_KEYS = {
   CHAT_HISTORY: 'app_chat_history',
+  CHAT_PARAMETERS: 'app_chat_parameters',
   API_KEYS: 'app_api_keys',
   ACTIVE_KEY_ID: 'app_active_key_id',
   THEME: 'app_theme',
   ACTIVE_TAB: 'app_active_tab',
 };
+const RESERVED_CHAT_PARAMETERS = new Set(['messages', 'model', 'stream', 'provider', 'provider_id']);
 const TAB_LABELS: Record<Tab, string> = {
   chat: 'Chat',
   api: 'API',
@@ -224,6 +233,10 @@ const TAB_FROM_PATH: Record<string, Tab> = {
 
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [extraParameters, setExtraParameters] = useState<Record<string, unknown>>({});
+  const [extraParameterDraft, setExtraParameterDraft] = useState<ExtraParameterDraft[]>([]);
+  const [extraParameterError, setExtraParameterError] = useState('');
+  const [showExtraParameters, setShowExtraParameters] = useState(false);
   const [input, setInput] = useState('');
   const [appName, setAppName] = useState<string>('Chat');
   const [activeTab, setActiveTab] = useState<Tab>(() => {
@@ -637,7 +650,26 @@ export default function App() {
     }
   }, [activeTab]);
 
+  const loadExtraParameters = (userName?: string) => {
+    if (!userName) {
+      setExtraParameters({});
+      return;
+    }
+    try {
+      const stored = localStorage.getItem(`${STORAGE_KEYS.CHAT_PARAMETERS}_${userName}`);
+      const parsed = stored ? JSON.parse(stored) : null;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        setExtraParameters(Object.fromEntries(
+          Object.entries(parsed).filter(([key]) => key === key.trim() && !!key && !RESERVED_CHAT_PARAMETERS.has(key))
+        ));
+        return;
+      }
+    } catch (e) {}
+    setExtraParameters({});
+  };
+
   const loadMessages = async (userName?: string) => {
+    loadExtraParameters(userName);
     const key = userName ? `${STORAGE_KEYS.CHAT_HISTORY}_${userName}` : STORAGE_KEYS.CHAT_HISTORY;
     try {
       const stored = localStorage.getItem(key);
@@ -775,16 +807,70 @@ export default function App() {
     localStorage.removeItem('jwt_token');
     if (currentUser) {
       localStorage.removeItem(`${STORAGE_KEYS.CHAT_HISTORY}_${currentUser}`);
+      localStorage.removeItem(`${STORAGE_KEYS.CHAT_PARAMETERS}_${currentUser}`);
     }
     localStorage.removeItem(STORAGE_KEYS.CHAT_HISTORY);
     setToken(null);
     setIsLoggedIn(false);
     setCurrentUser('');
     setMessages([]);
+    setExtraParameters({});
     setApiKeys([]);
   };
 
   // --- Chat Handlers ---
+  const openExtraParameters = () => {
+    const rows = Object.entries(extraParameters).map(([key, value]) => ({
+      id: genId(),
+      key,
+      value: JSON.stringify(value) ?? '',
+    }));
+    setExtraParameterDraft(rows.length > 0 ? rows : [{ id: genId(), key: '', value: '' }]);
+    setExtraParameterError('');
+    setShowExtraParameters(true);
+  };
+
+  const saveExtraParameters = () => {
+    const next: Record<string, unknown> = {};
+    const seen = new Set<string>();
+    const rows = extraParameterDraft.filter(row => row.key.trim() || row.value.trim());
+
+    for (const row of rows) {
+      const key = row.key.trim();
+      const value = row.value.trim();
+      if (!key) {
+        setExtraParameterError('Every parameter needs a key.');
+        return;
+      }
+      if (!value) {
+        setExtraParameterError(`Enter a JSON value for "${key}".`);
+        return;
+      }
+      if (RESERVED_CHAT_PARAMETERS.has(key)) {
+        setExtraParameterError(`"${key}" is controlled by Fairport and cannot be overridden.`);
+        return;
+      }
+      if (seen.has(key)) {
+        setExtraParameterError(`"${key}" is listed more than once.`);
+        return;
+      }
+      try {
+        next[key] = JSON.parse(value);
+      } catch {
+        setExtraParameterError(`"${key}" must contain a valid JSON value.`);
+        return;
+      }
+      seen.add(key);
+    }
+
+    setExtraParameters(next);
+    if (currentUser) {
+      localStorage.setItem(`${STORAGE_KEYS.CHAT_PARAMETERS}_${currentUser}`, JSON.stringify(next));
+    }
+    setExtraParameterError('');
+    setShowExtraParameters(false);
+  };
+
   const handleSendMessage = async () => {
     if (!input.trim() || isTyping) return;
     if (overLimit) return;
@@ -821,6 +907,7 @@ export default function App() {
           'x-api-key-id': activeKeyId || ''
         },
         body: JSON.stringify({ 
+          ...extraParameters,
           messages: [...messages, userMessage].map(m => ({ role: m.role, content: m.content })),
           provider_id: activeProviderId
         })
@@ -897,9 +984,11 @@ export default function App() {
     if (confirm('Are you sure you want to clear the conversation?')) {
       if (currentUser) {
         localStorage.removeItem(`${STORAGE_KEYS.CHAT_HISTORY}_${currentUser}`);
+        localStorage.removeItem(`${STORAGE_KEYS.CHAT_PARAMETERS}_${currentUser}`);
       }
       await fetch('/api/messages', { method: 'DELETE', headers: { ...authHeaders() } });
       setMessages([]);
+      setExtraParameters({});
     }
   };
 
@@ -987,11 +1076,13 @@ export default function App() {
         localStorage.removeItem('jwt_token');
         if (currentUser) {
           localStorage.removeItem(`${STORAGE_KEYS.CHAT_HISTORY}_${currentUser}`);
+          localStorage.removeItem(`${STORAGE_KEYS.CHAT_PARAMETERS}_${currentUser}`);
         }
         setToken(null);
         setIsLoggedIn(false);
         setCurrentUser('');
         setMessages([]);
+        setExtraParameters({});
         setApiKeys([]);
         setShowDeleteConfirm(false);
         setDeleteConfirmEmail('');
@@ -2175,17 +2266,31 @@ export default function App() {
 
         {/* Input Dock */}
         {activeTab === 'chat' && (
-          <div className="absolute bottom-0 left-0 right-0 p-6 pointer-events-none">
+          <div className="absolute bottom-0 left-0 right-0 p-3 sm:p-6 pointer-events-none">
             <div className="max-w-4xl mx-auto w-full pointer-events-auto">
+              {overLimit && (
+                <div className="mb-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-xs text-red-600 dark:text-red-400 flex flex-wrap items-center gap-2 shadow-lg">
+                  <span className="font-semibold">Context limit reached.</span>
+                  <span>Clear the chat to continue. ({currentTokens.toLocaleString()} / {MAX_INPUT_TOKENS.toLocaleString()} tokens)</span>
+                </div>
+              )}
+              <div className="flex justify-end mb-2">
+                <button
+                  type="button"
+                  onClick={openExtraParameters}
+                  aria-haspopup="dialog"
+                  className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-full border text-xs font-bold shadow-lg backdrop-blur transition-all active:scale-95 ${Object.keys(extraParameters).length > 0 ? 'bg-indigo-600 hover:bg-indigo-500 border-indigo-500 text-white shadow-indigo-600/20' : 'bg-white/95 dark:bg-zinc-900/95 hover:bg-slate-50 dark:hover:bg-zinc-800 border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-zinc-300'}`}
+                >
+                  <SlidersHorizontal className="w-4 h-4" />
+                  <span>Extra Parameters</span>
+                  {Object.keys(extraParameters).length > 0 && (
+                    <span className="min-w-5 h-5 px-1.5 rounded-full bg-white/20 flex items-center justify-center font-mono text-[10px]">{Object.keys(extraParameters).length}</span>
+                  )}
+                </button>
+              </div>
               <div className="relative group">
                 <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-2xl blur opacity-25 group-focus-within:opacity-50 transition duration-500" />
                 <div className="relative bg-white dark:bg-zinc-900 rounded-2xl border border-slate-200 dark:border-zinc-800 shadow-2xl flex items-end p-2 pl-4">
-                  {overLimit && (
-                    <div className="absolute bottom-full left-0 right-0 mb-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl text-xs text-red-600 dark:text-red-400 flex items-center gap-2">
-                      <span className="font-semibold">Context limit reached.</span>
-                      <span>Clear the chat to continue. ({currentTokens.toLocaleString()} / {MAX_INPUT_TOKENS.toLocaleString()} tokens)</span>
-                    </div>
-                  )}
                   <textarea 
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
@@ -2214,6 +2319,119 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* Extra Parameters Modal */}
+      {showExtraParameters && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[60] p-3 sm:p-6" role="dialog" aria-modal="true" aria-labelledby="extra-parameters-title">
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl sm:rounded-3xl max-w-2xl w-full max-h-[calc(100vh-1.5rem)] sm:max-h-[85vh] shadow-2xl flex flex-col overflow-hidden">
+            <div className="flex items-start justify-between gap-4 p-5 sm:p-6 border-b border-slate-100 dark:border-zinc-800">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center flex-shrink-0">
+                  <SlidersHorizontal className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                </div>
+                <div className="min-w-0">
+                  <h3 id="extra-parameters-title" className="text-lg font-bold tracking-tight text-slate-900 dark:text-zinc-100">Extra Parameters</h3>
+                  <p className="text-sm text-slate-500 dark:text-zinc-400 mt-0.5">Applied to every new message in this chat.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowExtraParameters(false)}
+                aria-label="Close Extra Parameters"
+                className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors flex-shrink-0"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-6 overflow-y-auto space-y-4">
+              <div className="rounded-2xl border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/70 dark:bg-indigo-950/20 p-4 text-xs text-indigo-700 dark:text-indigo-300 leading-relaxed">
+                Values use JSON syntax: <span className="font-mono">1024</span>, <span className="font-mono">true</span>, <span className="font-mono">"text"</span>, arrays, or objects.
+                <div className="mt-1.5 text-indigo-600/80 dark:text-indigo-400/80">Reserved: messages, model, stream, provider, provider_id</div>
+              </div>
+
+              {extraParameterDraft.length === 0 ? (
+                <div className="rounded-2xl border-2 border-dashed border-slate-200 dark:border-zinc-800 px-4 py-8 text-center text-sm text-slate-400 dark:text-zinc-500">
+                  No extra parameters configured.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {extraParameterDraft.map((row, index) => (
+                    <div key={row.id} className="grid grid-cols-1 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)_auto] gap-3 p-3 sm:p-4 rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/80 dark:bg-zinc-800/40">
+                      <label className="space-y-1.5">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-zinc-500 ml-1">Key</span>
+                        <input
+                          type="text"
+                          value={row.key}
+                          onChange={(e) => setExtraParameterDraft(prev => prev.map(item => item.id === row.id ? { ...item, key: e.target.value } : item))}
+                          aria-label={`Parameter key ${index + 1}`}
+                          placeholder="max_tokens"
+                          autoComplete="off"
+                          spellCheck={false}
+                          className="w-full h-11 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl px-3 text-sm font-mono text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-zinc-600"
+                        />
+                      </label>
+                      <label className="space-y-1.5">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-zinc-500 ml-1">JSON Value</span>
+                        <input
+                          type="text"
+                          value={row.value}
+                          onChange={(e) => setExtraParameterDraft(prev => prev.map(item => item.id === row.id ? { ...item, value: e.target.value } : item))}
+                          aria-label={`Parameter value ${index + 1}`}
+                          placeholder="1024"
+                          autoComplete="off"
+                          spellCheck={false}
+                          className="w-full h-11 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl px-3 text-sm font-mono text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-zinc-600"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setExtraParameterDraft(prev => prev.filter(item => item.id !== row.id))}
+                        aria-label={`Remove parameter ${index + 1}`}
+                        className="h-11 sm:w-11 sm:self-end px-3 sm:px-0 rounded-xl border border-red-200 dark:border-red-900/50 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 flex items-center justify-center gap-2 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        <span className="sm:hidden text-xs font-bold">Remove</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setExtraParameterDraft(prev => [...prev, { id: genId(), key: '', value: '' }])}
+                className="w-full py-3 rounded-2xl border-2 border-dashed border-slate-200 dark:border-zinc-700 hover:border-indigo-400 dark:hover:border-indigo-500 hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20 text-sm font-bold text-slate-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center justify-center gap-2 transition-all"
+              >
+                <Plus className="w-4 h-4" /> Add Parameter
+              </button>
+
+              {extraParameterError && (
+                <div role="alert" className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-4 py-3 text-sm font-medium text-red-600 dark:text-red-400">
+                  {extraParameterError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 p-4 sm:p-6 border-t border-slate-100 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-900">
+              <button
+                type="button"
+                onClick={() => setShowExtraParameters(false)}
+                className="w-full sm:w-auto px-5 py-3 rounded-2xl bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-300 font-bold transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveExtraParameters}
+                className="w-full sm:w-auto px-5 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold shadow-lg shadow-indigo-600/20 active:scale-[0.99] transition-all flex items-center justify-center gap-2"
+              >
+                <Check className="w-4 h-4" /> Save Parameters
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Delete Account Confirmation Modal */}
       {showDeleteConfirm && (

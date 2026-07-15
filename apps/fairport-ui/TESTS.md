@@ -68,6 +68,7 @@ Definitions
 | ✅    | pw    | /chat    | -    | clicking example prompt fills input — app.spec.ts |
 | ✅    | pw    | /chat    | -    | send message and show typing indicator — app.spec.ts |
 | ✅    | pw    | /chat    | -    | clear chat with confirmation — app.spec.ts |
+| ✅    | pw    | /chat    | POST | Extra Parameters validate typed JSON, persist across refresh, forward with chat requests, clear with history, and fit a mobile viewport — app.spec.ts |
 | ✅    | pw    | /chat    | -    | sidebar tabs navigate and update URL — app.spec.ts |
 | ✅    | pw    | /chat    | -    | active tab persists across refresh — app.spec.ts |
 | -     |       | /chat    | -    | chat history stored per-user in localStorage |
