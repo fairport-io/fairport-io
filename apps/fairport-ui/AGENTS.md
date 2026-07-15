@@ -79,6 +79,14 @@ The following security issues were identified and fixed:
 ### New endpoints
 - `POST /api/auth/oauth/exchange` — exchanges a short-lived one-time OAuth code for a JWT
 
+## Chat Parameter Passthrough (2026-07-15)
+
+Both `/api/chat/stream` and `/v1/chat/completions` now preserve unrecognized top-level request fields when forwarding to the selected provider.
+
+- `provider` and `provider_id` remain Fairport-only and are not forwarded.
+- Fairport applies its resolved `model`, `messages`, and `stream` after passthrough fields so those values remain authoritative.
+- `tests/server/chat-stream.test.ts` covers nested passthrough values and server-controlled fields for both endpoints.
+
 ## Chat Stream Robustness (2026-07-13)
 
 Hardened `/api/chat/stream` upstream SSE handling:

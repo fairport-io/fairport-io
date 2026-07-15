@@ -131,6 +131,7 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | **Settings** | Preferences persisted to localStorage |
 | **API** | `POST /v1/chat/completions` (non-streaming, Bearer auth) |
 | **API** | `POST /api/chat/stream` (SSE streaming, session auth) |
+| **API** | Unrecognized top-level chat parameters pass through to providers; Fairport selection fields are stripped |
 | **Logging** | JSON request logging to stdout |
 | **Logging** | Request IDs via `crypto.randomUUID()` |
 | **Logging** | Chat endpoints get start + end log entries |

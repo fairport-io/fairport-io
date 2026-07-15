@@ -565,6 +565,11 @@ function resolveProviderApiKey(provider: any): string {
   return decryptProviderKey(provider.api_key, provider.owner_id);
 }
 
+function buildProviderChatBody(body: Record<string, any>, model: string, messages: any[], stream: boolean) {
+  const { provider: _provider, provider_id: _providerId, ...passthrough } = body;
+  return { ...passthrough, model, messages, stream };
+}
+
 // --- MIDDLEWARE ---
 // Security headers (H4)
 app.use(helmet({
@@ -1931,11 +1936,12 @@ app.post('/api/chat/stream', async (req, res) => {
   };
 
   try {
-    const response = await axios.post(`${provider.base_url}/chat/completions`, {
-      model: provider.models.split(',')[0].trim(),
+    const response = await axios.post(`${provider.base_url}/chat/completions`, buildProviderChatBody(
+      req.body,
+      provider.models.split(',')[0].trim(),
       messages,
-      stream: true
-    }, {
+      true
+    ), {
       headers: { 'Authorization': `Bearer ${resolveProviderApiKey(provider)}` },
       responseType: 'stream'
     });
@@ -2058,11 +2064,12 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
   }
 
   try {
-    const response = await axios.post(`${provider.base_url}/chat/completions`, {
-      model: reqModel || provider.models.split(',')[0].trim(),
+    const response = await axios.post(`${provider.base_url}/chat/completions`, buildProviderChatBody(
+      req.body,
+      reqModel || provider.models.split(',')[0].trim(),
       messages,
-      stream: false
-    }, {
+      false
+    ), {
       headers: { 'Authorization': `Bearer ${resolveProviderApiKey(provider)}` }
     });
 

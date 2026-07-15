@@ -78,6 +78,7 @@ Definitions
 |-------|-------|-------------------|--------|------|
 | -     |       | /api/chat/stream  | POST   | requires valid auth + API key |
 | ✅    | vi    | /api/chat/stream  | POST   | forwards to provider and streams split SSE response chunks — chat-stream.test.ts |
+| ✅    | vi    | /api/chat/stream  | POST   | passes through nested parameters, strips provider selectors, and controls model/messages/stream — chat-stream.test.ts |
 | -     |       | /api/chat/stream  | POST   | thinking/reasoning content streamed separately |
 | -     |       | /api/chat/stream  | POST   | TTFT tracked on first token |
 | -     |       | /api/chat/stream  | POST   | input token limit enforced (400) |
@@ -89,6 +90,7 @@ Definitions
 | State | Suite | Endpoint                | Method | Test |
 |-------|-------|-------------------------|--------|------|
 | -     |       | /v1/chat/completions    | POST   | requires Bearer API key auth |
+| ✅    | vi    | /v1/chat/completions    | POST   | passes through nested parameters, strips provider selectors, and controls model/messages/stream — chat-stream.test.ts |
 | -     |       | /v1/chat/completions    | POST   | non-streaming only (stream=true returns 400) |
 | -     |       | /v1/chat/completions    | POST   | returns OpenAI-format response |
 | -     |       | /v1/chat/completions    | POST   | usage event recorded |
