@@ -187,9 +187,9 @@ test('keys: deletes a key', async () => {
   await sharedPage.getByPlaceholder('e.g. Production API').fill('delete-me-key');
   await sharedPage.getByRole('button', { name: 'Create Key' }).click();
   await sharedPage.getByRole('button', { name: 'Done' }).click();
-  const keyRow = sharedPage.getByText('delete-me-key').locator('xpath=ancestor::div[.//button[@aria-label="Delete"]][1]');
+  const keyRow = sharedPage.getByText('delete-me-key', { exact: true }).locator('xpath=ancestor::div[./div/button[@aria-label="Delete"]][1]');
   await keyRow.getByRole('button', { name: 'Delete' }).click();
-  await expect(sharedPage.getByText('delete-me-key')).not.toBeVisible();
+  await expect(keyRow).not.toBeVisible();
 });
 
 test('keys: code samples toggle between curl and python', async () => {

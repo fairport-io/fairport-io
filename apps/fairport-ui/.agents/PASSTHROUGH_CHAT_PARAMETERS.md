@@ -40,7 +40,7 @@ Pass unrecognized chat-completion JSON parameters through Fairport to the config
 
 ### Verification
 - [x] `make build` passes
-- [ ] `make test` passes
+- [x] `make test` passes
 - [x] Run `git diff origin/main` and verify the changeset matches this spec
 - [x] Update relevant `.md` files for the next agent
 - [x] Check this file again to ensure all requirements are met
@@ -60,4 +60,5 @@ Pass unrecognized chat-completion JSON parameters through Fairport to the config
 - Extra values are JSON-parsed, validated against duplicates and reserved fields, stored per user alongside the current chat lifecycle, and applied to subsequent UI requests before controlled request fields.
 - Added Playwright coverage for validation, typed forwarding, refresh persistence, Clear History cleanup, and a 375x667 mobile viewport.
 - `make build` passes and all 79 Vitest server tests pass.
-- The new Playwright test passes. Full `make test` remains blocked by the pre-existing key-deletion test: its locator resolves to three Delete buttons in strict mode (now at `tests/e2e/app.spec.ts:191` after the new coverage).
+- Fixed the key-deletion Playwright locator to scope both the click and disappearance assertion to the exact key row.
+- Full `make test` passes: 79 Vitest tests and 22 Playwright tests passed; 5 Playwright tests remain intentionally skipped.

@@ -101,7 +101,7 @@ Definitions
 |-------|-------|-------------|--------|------|
 | ✅    | pw    | /api        | -    | shows registered keys in table — app.spec.ts |
 | ✅    | pw    | /api        | -    | creates new key and shows one-time modal — app.spec.ts |
-| ❌    | pw    | /api        | -    | deletes a key (flaky, skipped) |
+| ✅    | pw    | /api        | -    | deletes the targeted key row — app.spec.ts |
 | ❌    | pw    | /api        | -    | enforces max 5 keys (flaky, skipped) |
 | ❌    | pw    | /providers  | -    | creates a new provider (flaky, skipped) |
 | -     | pw    | /providers  | -    | immutable provider cannot be edited/deleted |
