@@ -30,6 +30,11 @@ Definitions
 | ✅    | pw    | /api/auth/signup   | POST   | redirects to /chat on success — login.spec.ts |
 | ✅    | pw    | /api/auth/signup   | POST   | duplicate signup shows error — login.spec.ts |
 | ✅    | pw    | /api/auth/signup   | POST   | short password rejected — login.spec.ts |
+| ✅    | vi    | /api/auth/signup   | POST   | exact email allowlist is case-insensitive and normalized — auth.test.ts |
+| ✅    | vi    | /api/auth/signup   | POST   | exact domain allowlist permits matching addresses — auth.test.ts |
+| ✅    | vi    | /api/auth/signup   | POST   | addresses outside both allowlists return 403 — auth.test.ts |
+| ✅    | vi    | /api/auth/signup   | POST   | an allowed domain does not implicitly allow subdomains — auth.test.ts |
+| ✅    | vi    | /api/auth/login    | POST   | signup allowlists do not affect existing-user login — auth.test.ts |
 | -     |       | /api/auth/signup   | POST   | bad email format rejected |
 
 ## GET /api/auth/session

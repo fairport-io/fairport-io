@@ -201,3 +201,62 @@ describe('SIGNUPS_ENABLED=false', () => {
     expect(res.body.signups_enabled).toBe(false);
   });
 });
+
+describe('signup allowlist', () => {
+  let allowlistedApp: any;
+
+  beforeAll(async () => {
+    process.env.SIGNUP_ALLOWED_EMAILS = ' Exact@Example.com,other@example.org ';
+    process.env.SIGNUP_ALLOWED_DOMAINS = ' allowed.com,Example.NET ';
+    vi.resetModules();
+    const mod = await import('../../server');
+    allowlistedApp = mod.app;
+  });
+
+  afterAll(() => {
+    delete process.env.SIGNUP_ALLOWED_EMAILS;
+    delete process.env.SIGNUP_ALLOWED_DOMAINS;
+  });
+
+  it('allows and normalizes an exact email match', async () => {
+    const res = await request(allowlistedApp)
+      .post('/api/auth/signup')
+      .send({ username: ' EXACT@EXAMPLE.COM ', password: 'password123' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.name).toBe('exact@example.com');
+  });
+
+  it('allows a case-insensitive exact domain match', async () => {
+    const res = await request(allowlistedApp)
+      .post('/api/auth/signup')
+      .send({ username: 'member@ALLOWED.COM', password: 'password123' });
+
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects an email outside both allowlists', async () => {
+    const res = await request(allowlistedApp)
+      .post('/api/auth/signup')
+      .send({ username: 'blocked@example.com', password: 'password123' });
+
+    expect(res.status).toBe(403);
+    expect(res.body.detail).toBe('Signup is not allowed for this email address.');
+  });
+
+  it('does not treat subdomains as an exact domain match', async () => {
+    const res = await request(allowlistedApp)
+      .post('/api/auth/signup')
+      .send({ username: 'member@sub.allowed.com', password: 'password123' });
+
+    expect(res.status).toBe(403);
+  });
+
+  it('does not affect login for an existing user', async () => {
+    const res = await request(allowlistedApp)
+      .post('/api/auth/login')
+      .send({ username: 'exact@example.com', password: 'password123' });
+
+    expect(res.status).toBe(200);
+  });
+});
