@@ -18,6 +18,7 @@ function appNamePlugin() {
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
+    base: './',
     plugins: [react(), tailwindcss(), appNamePlugin()],
     define: {
       'import.meta.env.VITE_APP_NAME': JSON.stringify(env.APP_NAME || 'Chat'),
