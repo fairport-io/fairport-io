@@ -206,6 +206,9 @@ const STORAGE_KEYS = {
   ACTIVE_TAB: 'app_active_tab',
 };
 const RESERVED_CHAT_PARAMETERS = new Set(['messages', 'model', 'stream', 'provider', 'provider_id']);
+const BASE_PATH = new URL('.', document.baseURI).pathname.replace(/\/$/, '');
+const appPath = (path: string) => `${BASE_PATH}${path}`;
+const appFetch = (path: string, init?: RequestInit) => fetch(appPath(path), init);
 const TAB_LABELS: Record<Tab, string> = {
   chat: 'Chat',
   api: 'API',
@@ -215,21 +218,14 @@ const TAB_LABELS: Record<Tab, string> = {
   deployments: 'Deployments',
 };
 const TAB_PATHS: Record<Tab, string> = {
-  chat: '/chat',
-  api: '/api',
-  providers: '/providers',
-  usage: '/usage',
-  settings: '/settings',
-  deployments: '/deployments',
+  chat: BASE_PATH ? appPath('/') : '/chat',
+  api: appPath('/api'),
+  providers: appPath('/providers'),
+  usage: appPath('/usage'),
+  settings: appPath('/settings'),
+  deployments: appPath('/deployments'),
 };
-const TAB_FROM_PATH: Record<string, Tab> = {
-  '/chat': 'chat',
-  '/api': 'api',
-  '/providers': 'providers',
-  '/usage': 'usage',
-  '/settings': 'settings',
-  '/deployments': 'deployments',
-};
+const TAB_FROM_PATH = Object.fromEntries(Object.entries(TAB_PATHS).map(([tab, path]) => [path, tab])) as Record<string, Tab>;
 
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -368,7 +364,7 @@ export default function App() {
     const oauthCode = params.get('oauth_code');
     if (oauthCode) {
       window.history.replaceState({}, '', window.location.pathname);
-      fetch('/api/auth/oauth/exchange', {
+      appFetch('/api/auth/oauth/exchange', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: oauthCode }),
@@ -388,12 +384,12 @@ export default function App() {
     if (storedToken) {
       checkSession(storedToken);
     }
-    fetch('/api/auth/oauth/config')
+    appFetch('/api/auth/oauth/config')
       .then(res => res.json())
       .then(data => setOauthProviders(data.providers || []))
       .catch(() => {});
     // Fetch app config (includes providers)
-    fetch('/api/config')
+    appFetch('/api/config')
       .then(res => res.json())
       .then(data => {
         if (data.app_name) {
@@ -424,7 +420,7 @@ export default function App() {
     const t = sessionToken || token || localStorage.getItem('jwt_token');
     if (!t) return;
     try {
-      const res = await fetch('/api/auth/session', { headers: { 'Cache-Control': 'no-cache', ...(t ? { 'Authorization': `Bearer ${t}` } : {}) } });
+      const res = await appFetch('/api/auth/session', { headers: { 'Cache-Control': 'no-cache', ...(t ? { 'Authorization': `Bearer ${t}` } : {}) } });
       const data = await res.json();
       if (data.logged_in) {
         setIsLoggedIn(true);
@@ -444,7 +440,7 @@ export default function App() {
   const loadKeys = async (groupId?: string) => {
     try {
       const url = groupId ? `/api/keys?group_id=${groupId}` : '/api/keys';
-      const res = await fetch(url, { headers: { 'Cache-Control': 'no-cache', ...authHeaders() } });
+      const res = await appFetch(url, { headers: { 'Cache-Control': 'no-cache', ...authHeaders() } });
       if (res.ok) {
         const data = await res.json();
         const mappedKeys = data.map((k: any) => ({
@@ -472,7 +468,7 @@ export default function App() {
 
   const loadGroups = async () => {
     try {
-      const res = await fetch('/api/groups', { headers: { 'Cache-Control': 'no-cache', ...authHeaders() } });
+      const res = await appFetch('/api/groups', { headers: { 'Cache-Control': 'no-cache', ...authHeaders() } });
       if (res.ok) {
         const data = await res.json();
         setGroups(data.groups || []);
@@ -493,7 +489,7 @@ export default function App() {
     setAddUserSearch('');
     setMemberResults([]);
     try {
-      const res = await fetch(`/api/groups/${slug}`, { headers: { ...authHeaders() } });
+      const res = await appFetch(`/api/groups/${slug}`, { headers: { ...authHeaders() } });
       if (res.ok) {
         const data = await res.json();
         setGroupDetail(data);
@@ -518,12 +514,12 @@ export default function App() {
     const email = addUserSearch.trim();
     if (!email || !selectedGroupSlug) return;
     try {
-      const res = await fetch(`/api/admin/users?q=${encodeURIComponent(email)}`, { headers: { ...authHeaders() } });
+      const res = await appFetch(`/api/admin/users?q=${encodeURIComponent(email)}`, { headers: { ...authHeaders() } });
       if (res.ok) {
         const users = await res.json();
         const exact = users.find((u: any) => u.name.toLowerCase() === email.toLowerCase());
         if (exact) {
-          await fetch(`/api/groups/${selectedGroupSlug}/members`, {
+          await appFetch(`/api/groups/${selectedGroupSlug}/members`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders() },
             body: JSON.stringify({ user_id: exact.id }),
@@ -545,7 +541,7 @@ export default function App() {
       return;
     }
     try {
-      const res = await fetch(`/api/groups/${selectedGroupSlug}/members?q=${encodeURIComponent(q)}`, { headers: { ...authHeaders() } });
+      const res = await appFetch(`/api/groups/${selectedGroupSlug}/members?q=${encodeURIComponent(q)}`, { headers: { ...authHeaders() } });
       if (res.ok) {
         setMemberResults(await res.json());
       } else {
@@ -562,7 +558,7 @@ export default function App() {
   const removeMemberFromGroup = async (userId: string) => {
     if (!selectedGroupSlug) return;
     if (!confirm('Remove this user from the group?')) return;
-    const res = await fetch(`/api/groups/${selectedGroupSlug}/members/${userId}`, { method: 'DELETE', headers: { ...authHeaders() } });
+    const res = await appFetch(`/api/groups/${selectedGroupSlug}/members/${userId}`, { method: 'DELETE', headers: { ...authHeaders() } });
     if (res.ok) {
       if (selectedMemberId === userId) {
         setSelectedMemberId(null);
@@ -578,8 +574,8 @@ export default function App() {
     setSelectedMemberUsage([]);
     try {
       const [res, usageRes] = await Promise.all([
-        fetch(`/api/admin/users/${memberId}`, { headers: { ...authHeaders() } }),
-        fetch(`/api/admin/users/${memberId}/usage`, { headers: { ...authHeaders() } }),
+        appFetch(`/api/admin/users/${memberId}`, { headers: { ...authHeaders() } }),
+        appFetch(`/api/admin/users/${memberId}/usage`, { headers: { ...authHeaders() } }),
       ]);
       if (res.ok) {
         const data = await res.json();
@@ -595,18 +591,18 @@ export default function App() {
   };
 
   const adminDeleteKey = async (userId: string, keyId: string) => {
-    const res = await fetch(`/api/admin/users/${userId}/keys/${keyId}`, { method: 'DELETE', headers: { ...authHeaders() } });
+    const res = await appFetch(`/api/admin/users/${userId}/keys/${keyId}`, { method: 'DELETE', headers: { ...authHeaders() } });
     if (res.ok) selectMember(userId);
   };
 
   const adminDeleteProvider = async (userId: string, providerId: string) => {
-    const res = await fetch(`/api/admin/users/${userId}/providers/${providerId}`, { method: 'DELETE', headers: { ...authHeaders() } });
+    const res = await appFetch(`/api/admin/users/${userId}/providers/${providerId}`, { method: 'DELETE', headers: { ...authHeaders() } });
     if (res.ok) selectMember(userId);
   };
 
   const adminDeleteUser = async (userId: string) => {
     if (!confirm('Are you sure you want to delete this user? This action is permanent.')) return;
-    const res = await fetch(`/api/admin/users/${userId}`, { method: 'DELETE', headers: { ...authHeaders() } });
+    const res = await appFetch(`/api/admin/users/${userId}`, { method: 'DELETE', headers: { ...authHeaders() } });
     if (res.ok) {
       closeGroupDetail();
       loadGroups();
@@ -614,7 +610,7 @@ export default function App() {
   };
 
   const adminRemoveFromGroup = async (userId: string, groupSlug: string) => {
-    const res = await fetch(`/api/admin/users/${userId}/groups/${groupSlug}`, { method: 'DELETE', headers: { ...authHeaders() } });
+    const res = await appFetch(`/api/admin/users/${userId}/groups/${groupSlug}`, { method: 'DELETE', headers: { ...authHeaders() } });
     if (res.ok && selectedMemberId) {
       selectMember(selectedMemberId);
       if (selectedGroupSlug && groupDetail) {
@@ -630,7 +626,7 @@ export default function App() {
   const loadUsage = async (groupId?: string) => {
     try {
       const url = groupId ? `/api/usage?group_id=${groupId}` : '/api/usage';
-      const res = await fetch(url, { headers: { 'Cache-Control': 'no-cache', ...authHeaders() } });
+      const res = await appFetch(url, { headers: { 'Cache-Control': 'no-cache', ...authHeaders() } });
       if (res.ok) {
         const data = await res.json();
         setUsageEvents(data);
@@ -682,7 +678,7 @@ export default function App() {
       }
     } catch (e) {}
     try {
-      const res = await fetch('/api/messages', { headers: { 'Cache-Control': 'no-cache', ...authHeaders() } });
+      const res = await appFetch('/api/messages', { headers: { 'Cache-Control': 'no-cache', ...authHeaders() } });
       if (res.ok) {
         const data = await res.json();
         setMessages(data.map((m: any) => ({
@@ -700,7 +696,7 @@ export default function App() {
   const loadProviders = async (groupId?: string) => {
     try {
       const url = groupId ? `/api/providers?group_id=${groupId}` : '/api/providers';
-      const res = await fetch(url, { headers: { 'Cache-Control': 'no-cache', ...authHeaders() } });
+      const res = await appFetch(url, { headers: { 'Cache-Control': 'no-cache', ...authHeaders() } });
       if (res.ok) {
         const data = await res.json();
         setProviders(data);
@@ -719,7 +715,7 @@ export default function App() {
 
   const loadConfig = async () => {
     try {
-      await fetch('/api/config');
+      await appFetch('/api/config');
     } catch (e) {}
   };
 
@@ -749,7 +745,7 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.ACTIVE_TAB, activeTab);
-    const target = !isLoggedIn ? '/login' : TAB_PATHS[activeTab];
+    const target = !isLoggedIn ? appPath('/login') : TAB_PATHS[activeTab];
     if (window.location.pathname !== target) {
       window.history.replaceState(null, '', target);
     }
@@ -765,7 +761,7 @@ export default function App() {
   const handleAuth = async (action: 'login' | 'signup') => {
     setAuthError('');
     try {
-      const res = await fetch(`/api/auth/${action}`, {
+      const res = await appFetch(`/api/auth/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(authForm)
@@ -780,7 +776,7 @@ export default function App() {
         setActiveTab('chat');
         await loadKeys();
         // Load config and providers
-        const configRes = await fetch('/api/config');
+        const configRes = await appFetch('/api/config');
         const configData = await configRes.json();
         if (configData.providers && Array.isArray(configData.providers)) {
           setProviders(configData.providers);
@@ -803,7 +799,7 @@ export default function App() {
   };
 
   const logout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
+    await appFetch('/api/auth/logout', { method: 'POST' });
     localStorage.removeItem('jwt_token');
     if (currentUser) {
       localStorage.removeItem(`${STORAGE_KEYS.CHAT_HISTORY}_${currentUser}`);
@@ -899,7 +895,7 @@ export default function App() {
     setMessages(prev => [...prev, assistantMessage]);
 
     try {
-      const response = await fetch('/api/chat/stream', {
+      const response = await appFetch('/api/chat/stream', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -986,7 +982,7 @@ export default function App() {
         localStorage.removeItem(`${STORAGE_KEYS.CHAT_HISTORY}_${currentUser}`);
         localStorage.removeItem(`${STORAGE_KEYS.CHAT_PARAMETERS}_${currentUser}`);
       }
-      await fetch('/api/messages', { method: 'DELETE', headers: { ...authHeaders() } });
+      await appFetch('/api/messages', { method: 'DELETE', headers: { ...authHeaders() } });
       setMessages([]);
       setExtraParameters({});
     }
@@ -997,7 +993,7 @@ export default function App() {
       const groupId = activeIdentity?.type === 'group' ? activeIdentity.id : undefined;
       const body: any = { name };
       if (groupId) body.group_id = groupId;
-      const res = await fetch('/api/keys', {
+      const res = await appFetch('/api/keys', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify(body)
@@ -1017,7 +1013,7 @@ export default function App() {
 
   const removeApiKey = async (id: string) => {
     const groupId = activeIdentity?.type === 'group' ? activeIdentity.id : undefined;
-    const res = await fetch(`/api/keys/${id}`, { method: 'DELETE', headers: { ...authHeaders() } });
+    const res = await appFetch(`/api/keys/${id}`, { method: 'DELETE', headers: { ...authHeaders() } });
     if (res.ok) await loadKeys(groupId);
   };
 
@@ -1027,7 +1023,7 @@ export default function App() {
       const groupId = activeIdentity?.type === 'group' ? activeIdentity.id : undefined;
       const body: any = { name, base_url: baseUrl, models, rate_limits: rateLimits, api_key: apiKey || undefined, queue_max_size: queueMaxSize };
       if (groupId) body.group_id = groupId;
-      const res = await fetch('/api/providers', {
+      const res = await appFetch('/api/providers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify(body)
@@ -1046,7 +1042,7 @@ export default function App() {
 
   const updateProvider = async (id: string, updates: { name?: string; base_url?: string; models?: string; api_key?: string; rate_limits?: string; queue_max_size?: number }): Promise<string | null> => {
     try {
-      const res = await fetch(`/api/providers/${id}`, {
+      const res = await appFetch(`/api/providers/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify(updates)
@@ -1064,14 +1060,14 @@ export default function App() {
   };
 
   const removeProvider = async (id: string) => {
-    await fetch(`/api/providers/${id}`, { method: 'DELETE', headers: { ...authHeaders() } });
+    await appFetch(`/api/providers/${id}`, { method: 'DELETE', headers: { ...authHeaders() } });
     loadProviders();
   };
 
   const deleteAccount = async () => {
     if (deleteConfirmEmail !== currentUser) return;
     try {
-      const res = await fetch('/api/auth/account', { method: 'DELETE', headers: { ...authHeaders() } });
+      const res = await appFetch('/api/auth/account', { method: 'DELETE', headers: { ...authHeaders() } });
       if (res.ok) {
         localStorage.removeItem('jwt_token');
         if (currentUser) {
@@ -1163,7 +1159,7 @@ export default function App() {
                 {oauthProviders.map(p => (
                   <a
                     key={p.id}
-                    href={`/api/auth/oauth/authorize?provider=${p.id}`}
+                    href={appPath(`/api/auth/oauth/authorize?provider=${p.id}`)}
                     className="w-full border border-slate-200 dark:border-zinc-800 hover:bg-slate-50 dark:hover:bg-zinc-800 flex items-center justify-center gap-3 py-4 rounded-2xl font-bold transition-all"
                   >
                     {OAUTH_PROVIDER_ICONS[p.id] ? (
@@ -3083,7 +3079,7 @@ function KeyManager({ apiKeys, onAdd, onRemove, modelName, providerName }: {
 
   const [requestFormat, setRequestFormat] = useState<'curl' | 'python'>('curl');
 
-  const requestUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:8000';
+  const requestUrl = typeof window !== 'undefined' ? `${window.location.origin}${BASE_PATH}` : 'http://localhost:8000';
   const sampleModel = modelName || 'default';
   const codeSamples = {
     curl: `curl ${requestUrl}/v1/chat/completions \\

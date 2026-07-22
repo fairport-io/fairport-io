@@ -9,6 +9,12 @@ Definitions
 | pw  | test uses playwright |
 | vi  | test uses vitest |
 
+## BASE_PATH
+
+| State | Suite | Endpoint | Method | Test |
+|-------|-------|----------|--------|------|
+| ✅    | vi    | /chat/api/auth/session | GET | configured prefix routes APIs and redirects `/chat` to `/chat/` — auth.test.ts |
+
 ## /login
 | State | Suite | Endpoint | Method | Test |
 |-------|-------|----------|--------|------|

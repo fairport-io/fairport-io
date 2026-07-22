@@ -15,6 +15,10 @@ docker run -it --rm -p 8000:8000 \
   ghcr.io/fairport-io/apps/fairport-ui:0.0.1
 ```
 
+### Subpath Hosting
+
+Set `BASE_PATH=/chat` to serve the same image at `/chat/`, including UI routes, assets, `/chat/api/*`, and `/chat/v1/chat/completions`. The ingress must forward `/chat` and `/chat/*` unchanged. If `APP_URL` is set, include the prefix (for example `https://example.com/chat`).
+
 ## Highlights
 
 ### Auth
@@ -147,6 +151,7 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 |----------|---------|-------------|
 | `PORT` | `3000` | HTTP server port |
 | `APP_NAME` | `Chat` | Application name (title, header, login page) |
+| `BASE_PATH` | `` | Optional runtime URL prefix such as `/chat`; no image rebuild or ingress rewrite required |
 | `SECRET_KEY` | auto-generated | Generate this for production!  Provider key encryption key (set for persistence across restarts; rotating destroys encrypted provider keys) |
 | `JWT_SECRET` | auto-generated | JWT signing secret — set for production persistence (session-less auth) |
 | `JWT_EXPIRY` | `24h` | JWT token expiry duration (e.g. `1h`, `7d`) |
@@ -176,7 +181,7 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | `OAUTH_AUTH0_CLIENT_SECRET` | `` | Auth0 OAuth client secret |
 | `OAUTH_AUTH0_METADATA_URL` | `` | Auth0 OIDC Discovery URL |
 | `CHAT_PERSISTENCE` | `client` | Message storage mode: `client` stores in browser localStorage, `server` stores in `db.yaml` |
-| `APP_URL` | `` | Public URL of the app (used for OAuth redirect URIs; auto-detected if behind proxy) |
+| `APP_URL` | `` | Full public URL of the app, including `BASE_PATH`; used for OAuth redirects and auto-detected when unset |
 | `SIGNUPS_ENABLED` | `true` | Set to `false` to disable new user registration (login unaffected) |
 | `BOOTSTRAP_ADMIN_EMAILS` | `` | Comma-separated emails granted Global Admin role on login/signup (full `*` permissions) |
 | `TRUST_PROXY` | `` | Set to `1` (or a number/string) to enable reverse-proxy IP trust for correct client IP detection |

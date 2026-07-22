@@ -201,3 +201,23 @@ describe('SIGNUPS_ENABLED=false', () => {
     expect(res.body.signups_enabled).toBe(false);
   });
 });
+
+describe('BASE_PATH', () => {
+  let prefixedApp: any;
+
+  beforeAll(async () => {
+    vi.stubEnv('BASE_PATH', '/chat/');
+    vi.resetModules();
+    prefixedApp = (await import('../../server')).app;
+  });
+
+  afterAll(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('serves APIs below the prefix and redirects its bare path', async () => {
+    await request(prefixedApp).get('/chat/api/auth/session').expect(200, { logged_in: false });
+    await request(prefixedApp).get('/chat').expect(308).expect('Location', '/chat/');
+  });
+});

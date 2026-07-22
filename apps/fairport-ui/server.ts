@@ -32,6 +32,11 @@ const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(32).toString('he
 const JWT_EXPIRY = process.env.JWT_EXPIRY || '24h';
 const CHAT_PERSISTENCE = process.env.CHAT_PERSISTENCE || 'client';
 const SIGNUPS_ENABLED = process.env.SIGNUPS_ENABLED !== 'false';
+const RAW_BASE_PATH = process.env.BASE_PATH || '';
+if (RAW_BASE_PATH && (!RAW_BASE_PATH.startsWith('/') || RAW_BASE_PATH.startsWith('//') || /[?#\\]/.test(RAW_BASE_PATH))) {
+  throw new Error('BASE_PATH must start with one "/" and contain no query, fragment, or backslash');
+}
+const BASE_PATH = RAW_BASE_PATH.replace(/\/+$/, '');
 const APP_CONFIG = {
   app_name: process.env.APP_NAME || "Chat",
   default_provider_name: process.env.DEFAULT_PROVIDER_NAME || "default",
@@ -98,7 +103,7 @@ const OAUTH_ENABLED = OAUTH_PROVIDERS.length > 0;
 const APP_URL = process.env.APP_URL || '';
 
 function getBaseUrl(req: Request): string {
-  return APP_URL || `${req.protocol}://${req.get('host')}`;
+  return (APP_URL || `${req.protocol}://${req.get('host')}${BASE_PATH}`).replace(/\/+$/, '');
 }
 
 async function resolveOAuthEndpoint(provider: OAuthProviderConfig, type: 'authorization_endpoint' | 'token_endpoint' | 'userinfo_endpoint'): Promise<string> {
@@ -571,6 +576,14 @@ function buildProviderChatBody(body: Record<string, any>, model: string, message
 }
 
 // --- MIDDLEWARE ---
+app.use((req, res, next) => {
+  if (BASE_PATH && (req.url === BASE_PATH || req.url.startsWith(`${BASE_PATH}?`))) {
+    return res.redirect(308, `${BASE_PATH}/${req.url.slice(BASE_PATH.length)}`);
+  }
+  if (BASE_PATH && req.url.startsWith(`${BASE_PATH}/`)) req.url = req.url.slice(BASE_PATH.length);
+  next();
+});
+
 // Security headers (H4)
 app.use(helmet({
   contentSecurityPolicy: {
@@ -938,7 +951,7 @@ app.get('/api/auth/oauth/authorize', async (req, res) => {
 });
 
 app.get('/api/auth/oauth/callback', async (req, res) => {
-  const frontendUrl = APP_URL || `${req.protocol}://${req.get('host')}`;
+  const frontendUrl = getBaseUrl(req);
 
   if (req.query.error) {
     return res.redirect(frontendUrl);
@@ -2215,6 +2228,7 @@ async function startServer() {
       const indexPath = path.join(distPath, 'index.html');
       let html = fs.readFileSync(indexPath, 'utf-8');
       html = html.replace(/%APP_NAME%/g, APP_CONFIG.app_name);
+      html = html.replace('href="./"', `href="${BASE_PATH || ''}/"`);
       res.type('html').send(html);
     });
   }

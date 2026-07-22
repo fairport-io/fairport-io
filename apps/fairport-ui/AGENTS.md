@@ -15,6 +15,13 @@
 
 ----Agents update below this line, do not remove this line----
 
+## Subpath Support (2026-07-22)
+
+- `BASE_PATH` optionally mounts the unchanged runtime image below a URL prefix such as `/chat`; unset preserves root hosting.
+- Vite emits relative assets, the frontend prefixes navigation/API/OAuth URLs, and Express strips the prefix before its existing route stack.
+- The ingress forwards the prefix unchanged. `APP_URL`, when set, includes the prefix; otherwise OAuth URLs are derived from the request origin and `BASE_PATH`.
+- `tests/server/auth.test.ts` covers prefixed API routing and the bare-path redirect.
+
 ## PostgreSQL/PGlite Support (2026-05-28)
 
 Added `DATABASE_TYPE` env var to support multiple database backends:
