@@ -255,6 +255,30 @@ test('providers: shows default provider as immutable', async () => {
   await expect(sharedPage.locator('table')).toBeVisible();
 });
 
+test('providers: tests a new provider connection', async () => {
+  await cleanModals();
+  await sharedPage.getByRole('button', { name: 'Providers' }).click();
+  let requestBody: any;
+  let authorization: string | undefined;
+  await sharedPage.route('**/api/providers/test', async route => {
+    requestBody = route.request().postDataJSON();
+    authorization = route.request().headers().authorization;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'Connection successful' }),
+    });
+  });
+
+  await sharedPage.getByPlaceholder('https://api.example.com/v1').fill('https://example.com/v1');
+  await sharedPage.getByRole('button', { name: 'Test Connection' }).click();
+
+  await expect.poll(() => requestBody).toEqual({ base_url: 'https://example.com/v1' });
+  expect(authorization).toMatch(/^Bearer /);
+  await expect(sharedPage.getByRole('status')).toHaveText('Connection successful');
+  await sharedPage.unroute('**/api/providers/test');
+});
+
 test.skip('providers: creates a new provider', async () => {
   await cleanModals();
   await sharedPage.getByRole('button', { name: 'Providers' }).click();
@@ -263,10 +287,10 @@ test.skip('providers: creates a new provider', async () => {
   await sharedPage.keyboard.press('Control+a');
   await sharedPage.keyboard.press('Delete');
   await sharedPage.getByPlaceholder('e.g. Ollama Local').fill('Ollama Test');
-  await sharedPage.getByPlaceholder('http://localhost:11434/v1').click();
+  await sharedPage.getByPlaceholder('https://api.example.com/v1').click();
   await sharedPage.keyboard.press('Control+a');
   await sharedPage.keyboard.press('Delete');
-  await sharedPage.getByPlaceholder('http://localhost:11434/v1').fill('http://localhost:11434/v1');
+  await sharedPage.getByPlaceholder('https://api.example.com/v1').fill('https://example.com/v1');
   await sharedPage.getByPlaceholder('llama3,mistral').click();
   await sharedPage.keyboard.press('Control+a');
   await sharedPage.keyboard.press('Delete');
@@ -283,10 +307,10 @@ test.skip('providers: deletes a provider', async () => {
   await sharedPage.keyboard.press('Control+a');
   await sharedPage.keyboard.press('Delete');
   await sharedPage.getByPlaceholder('e.g. Ollama Local').fill('delete-me-provider');
-  await sharedPage.getByPlaceholder('http://localhost:11434/v1').click();
+  await sharedPage.getByPlaceholder('https://api.example.com/v1').click();
   await sharedPage.keyboard.press('Control+a');
   await sharedPage.keyboard.press('Delete');
-  await sharedPage.getByPlaceholder('http://localhost:11434/v1').fill('http://localhost:11434/v1');
+  await sharedPage.getByPlaceholder('https://api.example.com/v1').fill('https://example.com/v1');
   await sharedPage.getByPlaceholder('llama3,mistral').click();
   await sharedPage.keyboard.press('Control+a');
   await sharedPage.keyboard.press('Delete');

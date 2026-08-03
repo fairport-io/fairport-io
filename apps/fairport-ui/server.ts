@@ -3,6 +3,9 @@ import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import dns from 'dns';
+import http from 'http';
+import https from 'https';
 import net from 'net';
 import { StringDecoder } from 'string_decoder';
 import jwt from 'jsonwebtoken';
@@ -128,50 +131,169 @@ function slugify(name: string): string {
 // The naive string-match for '169.254.169.254' was bypassable via IPv6, URL auth,
 // and other internal addresses. This function rejects all RFC-1918, loopback,
 // link-local, and metadata service ranges.
-const PRIVATE_IP_RANGES = [
-  /^127\./,                        // loopback
-  /^10\./,                         // RFC-1918
-  /^172\.(1[6-9]|2\d|3[01])\./,   // RFC-1918
-  /^192\.168\./,                   // RFC-1918
-  /^169\.254\./,                   // link-local / AWS metadata
-  /^::1$/,                         // IPv6 loopback
-  /^fc00:/i,                       // IPv6 ULA
-  /^fd[0-9a-f]{2}:/i,              // IPv6 ULA
-  /^fe80:/i,                       // IPv6 link-local
-  /^0\.0\.0\.0/,                   // unspecified
-];
+// Global Admins may approve LAN/cluster ranges; immutable deployment providers
+// retain the operator-controlled localhost exception documented in README.md.
+type ProviderUrlAccess = 'public' | 'private' | 'operator';
+type ResolvedAddress = { address: string; family: number };
+type ValidatedProviderUrl = { parsed: URL; addresses: ResolvedAddress[]; requiresPrivateAccess: boolean };
+const PROVIDER_DNS_TIMEOUT_MS = 3000;
+const PROVIDER_TEST_TIMEOUT_MS = 3000;
 
-function isPrivateIp(ip: string): boolean {
-  return PRIVATE_IP_RANGES.some(r => r.test(ip));
+class ProviderUrlError extends Error {
+  constructor(public kind: 'invalid' | 'forbidden' | 'private' | 'dns', message: string) {
+    super(message);
+  }
 }
 
-function isAllowedProviderUrl(rawUrl: string): boolean {
+const FORBIDDEN_IPS = new net.BlockList();
+FORBIDDEN_IPS.addSubnet('0.0.0.0', 8, 'ipv4'); // unspecified
+FORBIDDEN_IPS.addSubnet('127.0.0.0', 8, 'ipv4'); // loopback
+FORBIDDEN_IPS.addSubnet('169.254.0.0', 16, 'ipv4'); // link-local / AWS metadata
+FORBIDDEN_IPS.addSubnet('224.0.0.0', 4, 'ipv4');
+FORBIDDEN_IPS.addSubnet('240.0.0.0', 4, 'ipv4');
+FORBIDDEN_IPS.addAddress('100.100.100.200', 'ipv4');
+FORBIDDEN_IPS.addAddress('168.63.129.16', 'ipv4');
+FORBIDDEN_IPS.addAddress('::', 'ipv6');
+FORBIDDEN_IPS.addAddress('::1', 'ipv6'); // IPv6 loopback
+FORBIDDEN_IPS.addSubnet('fe80::', 10, 'ipv6'); // IPv6 link-local
+FORBIDDEN_IPS.addSubnet('ff00::', 8, 'ipv6');
+FORBIDDEN_IPS.addAddress('fd00:ec2::254', 'ipv6');
+
+const PRIVATE_IPS = new net.BlockList();
+PRIVATE_IPS.addSubnet('10.0.0.0', 8, 'ipv4'); // RFC-1918
+PRIVATE_IPS.addSubnet('100.64.0.0', 10, 'ipv4');
+PRIVATE_IPS.addSubnet('172.16.0.0', 12, 'ipv4'); // RFC-1918
+PRIVATE_IPS.addSubnet('192.168.0.0', 16, 'ipv4'); // RFC-1918
+PRIVATE_IPS.addSubnet('198.18.0.0', 15, 'ipv4');
+PRIVATE_IPS.addSubnet('fc00::', 7, 'ipv6'); // IPv6 ULA
+PRIVATE_IPS.addSubnet('fec0::', 10, 'ipv6');
+
+function normalizeHostname(hostname: string): string {
+  return hostname.replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase();
+}
+
+function mappedIpv4(ip: string): string | null {
+  const match = ip.toLowerCase().match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (!match) return ip.toLowerCase().startsWith('::ffff:') && net.isIP(ip.slice(7)) === 4 ? ip.slice(7) : null;
+  const high = parseInt(match[1], 16);
+  const low = parseInt(match[2], 16);
+  return `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`;
+}
+
+function classifyIp(rawIp: string): 'public' | 'private' | 'forbidden' {
+  const ip = normalizeHostname(rawIp.split('%')[0]);
+  const mapped = mappedIpv4(ip);
+  const address = mapped || ip;
+  const family = net.isIP(address);
+  if (!family) throw new ProviderUrlError('invalid', 'Invalid base_url: Host resolved to an invalid address');
+  const type = family === 6 ? 'ipv6' : 'ipv4';
+  if (FORBIDDEN_IPS.check(address, type)) return 'forbidden';
+  if (PRIVATE_IPS.check(address, type)) return 'private';
+  return 'public';
+}
+
+function parseProviderUrl(rawUrl: string): URL {
   let parsed: URL;
   try {
     parsed = new URL(rawUrl);
   } catch {
-    return false; // unparseable URL is rejected
+    throw new ProviderUrlError('invalid', 'Invalid base_url: Use a valid HTTP(S) URL');
   }
-
-  const hostname = parsed.hostname;
-
-  // Reject bare IP addresses that are private
-  if (net.isIP(hostname)) {
-    return !isPrivateIp(hostname);
+  // Reject URLs with userinfo — can be used to confuse URL parsers
+  if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.username || parsed.password || !parsed.hostname) {
+    throw new ProviderUrlError('invalid', 'Invalid base_url: Use an HTTP(S) URL without credentials');
   }
+  return parsed;
+}
+
+async function resolveProviderHostname(hostname: string, timeoutMs: number): Promise<ResolvedAddress[]> {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      dns.promises.lookup(hostname, { all: true, verbatim: true }),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new ProviderUrlError('dns', 'Invalid base_url: Hostname resolution timed out')), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function validateProviderUrl(rawUrl: string, access: ProviderUrlAccess, dnsTimeoutMs = PROVIDER_DNS_TIMEOUT_MS): Promise<ValidatedProviderUrl> {
+  const parsed = parseProviderUrl(rawUrl);
+  const hostname = normalizeHostname(parsed.hostname);
+  const isOperatorUrl = access === 'operator';
+  let requiresPrivateAccess = hostname.endsWith('.local') || hostname.endsWith('.internal') || hostname.endsWith('.home.arpa');
+  let addresses: ResolvedAddress[];
 
   // Reject well-known internal hostnames
-  const lower = hostname.toLowerCase();
-  if (lower === 'localhost' || lower.endsWith('.local') || lower.endsWith('.internal') || lower.endsWith('.localhost')) {
-    return false;
+  if (!isOperatorUrl && (hostname === 'localhost' || hostname.endsWith('.localhost'))) {
+    throw new ProviderUrlError('forbidden', 'Invalid base_url: Loopback, unspecified, link-local, and metadata addresses are forbidden');
   }
 
-  // Reject URLs with userinfo — can be used to confuse URL parsers
-  if (parsed.username || parsed.password) {
-    return false;
+  // Reject bare IP addresses that are private
+  const family = net.isIP(hostname);
+  if (family) {
+    addresses = [{ address: hostname, family }];
+  } else {
+    try {
+      addresses = await resolveProviderHostname(hostname, dnsTimeoutMs);
+    } catch (error) {
+      if (error instanceof ProviderUrlError) throw error;
+      throw new ProviderUrlError('dns', 'Invalid base_url: Hostname could not be resolved');
+    }
+    if (addresses.length === 0) {
+      throw new ProviderUrlError('dns', 'Invalid base_url: Hostname could not be resolved');
+    }
   }
 
-  return true;
+  for (const { address } of addresses) {
+    const classification = classifyIp(address);
+    if (!isOperatorUrl && classification === 'forbidden') {
+      throw new ProviderUrlError('forbidden', 'Invalid base_url: Loopback, unspecified, link-local, and metadata addresses are forbidden');
+    }
+    if (classification === 'private') requiresPrivateAccess = true;
+  }
+
+  if (access === 'public' && requiresPrivateAccess) {
+    throw new ProviderUrlError('private', 'Invalid base_url: Private/LAN/cluster addresses require Global Admin access');
+  }
+
+  return { parsed, addresses, requiresPrivateAccess };
+}
+
+function providerRequestConfig(target: ValidatedProviderUrl) {
+  const expectedHostname = normalizeHostname(target.parsed.hostname);
+  const lookup = ((hostname: string, options: any, callback: any) => {
+    if (normalizeHostname(hostname) !== expectedHostname) {
+      const error: NodeJS.ErrnoException = new Error('Redirected hostname was not validated');
+      error.code = 'EACCES';
+      return callback(error);
+    }
+    const family = typeof options === 'number' ? options : options?.family;
+    const addresses = family ? target.addresses.filter(address => address.family === family) : target.addresses;
+    if (addresses.length === 0) {
+      const error: NodeJS.ErrnoException = new Error('No validated address for the requested family');
+      error.code = 'EAI_ADDRFAMILY';
+      return callback(error);
+    }
+    if (options?.all) return callback(null, addresses);
+    return callback(null, addresses[0].address, addresses[0].family);
+  }) as net.LookupFunction;
+
+  return {
+    httpAgent: new http.Agent({ lookup }),
+    httpsAgent: new https.Agent({ lookup }),
+    maxRedirects: 0,
+    proxy: false as const,
+  };
+}
+
+function sendProviderUrlError(res: Response, error: unknown, dnsAsBadGateway = false) {
+  if (!(error instanceof ProviderUrlError)) throw error;
+  const status = error.kind === 'private' ? 403 : (dnsAsBadGateway && error.kind === 'dns' ? 502 : 400);
+  return res.status(status).json({ detail: error.message });
 }
 
 
@@ -289,7 +411,8 @@ async function ensureDefaults(db: any) {
       api_key: storedApiKey,
       owner_id: null,
       visibility: "public",
-      immutable: true
+      immutable: true,
+      allow_private: true
     });
     await saveDb(db);
   } else {
@@ -1204,6 +1327,34 @@ app.get('/api/providers', async (req, res) => {
   }));
 });
 
+app.post('/api/providers/test', async (req, res) => {
+  const { user, db } = await getAuthContext(req);
+  if (!user) return res.status(401).json({ detail: "Auth required" });
+
+  const { base_url } = req.body;
+  if (!base_url) return res.status(400).json({ detail: "base_url is required" });
+
+  // ponytail: this is per-process; move the limiter to shared storage for multi-instance enforcement.
+  const rateLimit = rateLimiter.check(user.id, 'provider-connection-test', [{ limit: 10, windowMs: 60_000 }]);
+  if (!rateLimit.allowed) return res.status(429).json({ detail: "Too many connection tests. Please try again later." });
+
+  try {
+    const deadline = Date.now() + PROVIDER_TEST_TIMEOUT_MS;
+    const target = await validateProviderUrl(base_url, isGlobalAdmin(user, db) ? 'private' : 'public', PROVIDER_TEST_TIMEOUT_MS);
+    const timeout = deadline - Date.now();
+    if (timeout <= 0) throw new ProviderUrlError('dns', 'Connection test timed out');
+    const response = await axios.head(base_url, {
+      ...providerRequestConfig(target),
+      timeout,
+      validateStatus: () => true,
+    });
+    return res.json({ ok: true, status: response.status, detail: `Endpoint reachable (HTTP ${response.status})` });
+  } catch (error: any) {
+    if (error instanceof ProviderUrlError) return sendProviderUrlError(res, error, true);
+    return res.status(502).json({ detail: `Connection failed: ${error.code || error.message || 'Unknown error'}` });
+  }
+});
+
 app.post('/api/providers', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
@@ -1212,8 +1363,14 @@ app.post('/api/providers', async (req, res) => {
   if (!name || !base_url) {
     return res.status(400).json({ detail: "Name and base_url are required" });
   }
-  if (!isAllowedProviderUrl(base_url)) {
-    return res.status(400).json({ detail: "Invalid base_url: Private/loopback/metadata addresses are forbidden" });
+  // ponytail: this is per-process; move the limiter to shared storage for multi-instance enforcement.
+  const urlRateLimit = rateLimiter.check(user.id, 'provider-url-change', [{ limit: 10, windowMs: 60_000 }]);
+  if (!urlRateLimit.allowed) return res.status(429).json({ detail: "Too many provider URL changes. Please try again later." });
+  let validatedUrl: ValidatedProviderUrl;
+  try {
+    validatedUrl = await validateProviderUrl(base_url, isGlobalAdmin(user, db) ? 'private' : 'public');
+  } catch (error) {
+    return sendProviderUrlError(res, error);
   }
   if (rate_limits && !isValidRateLimits(rate_limits)) {
     return res.status(400).json({ detail: "Invalid rate limits format. Use e.g. 10:request:minute,1:request:second" });
@@ -1248,7 +1405,8 @@ app.post('/api/providers', async (req, res) => {
     owner_id: user.id,
     group_id: group_id || null,
     visibility: 'private',
-    immutable: false
+    immutable: false,
+    allow_private: validatedUrl.requiresPrivateAccess
   };
   
   db.providers.push(entry);
@@ -1298,8 +1456,19 @@ app.put('/api/providers/:id', async (req, res) => {
   
   const { name, base_url, models, api_key, rate_limits, queue_max_size } = req.body;
 
-  if (base_url && !isAllowedProviderUrl(base_url)) {
-    return res.status(400).json({ detail: "Invalid base_url: Private/loopback/metadata addresses are forbidden" });
+  let validatedUrl: ValidatedProviderUrl | null = null;
+  const shouldValidateUrl = base_url && base_url !== provider.base_url;
+  if (shouldValidateUrl) {
+    if (provider.allow_private && !isGlobalAdmin(user, db)) {
+      return res.status(403).json({ detail: "Only Global Admin can change a private-network provider URL" });
+    }
+    const urlRateLimit = rateLimiter.check(user.id, 'provider-url-change', [{ limit: 10, windowMs: 60_000 }]);
+    if (!urlRateLimit.allowed) return res.status(429).json({ detail: "Too many provider URL changes. Please try again later." });
+    try {
+      validatedUrl = await validateProviderUrl(base_url, isGlobalAdmin(user, db) ? 'private' : 'public');
+    } catch (error) {
+      return sendProviderUrlError(res, error);
+    }
   }
 
   if (rate_limits !== undefined && !isValidRateLimits(rate_limits)) {
@@ -1310,7 +1479,10 @@ app.put('/api/providers/:id', async (req, res) => {
   }
   
   if (name) provider.name = name;
-  if (base_url) provider.base_url = base_url;
+  if (shouldValidateUrl) {
+    provider.base_url = base_url;
+    provider.allow_private = validatedUrl!.requiresPrivateAccess;
+  }
   if (models) provider.models = models;
   if (api_key !== undefined) {
     provider.api_key = api_key ? encryptProviderKey(api_key, user.id) : provider.api_key;
@@ -1949,12 +2121,17 @@ app.post('/api/chat/stream', async (req, res) => {
   };
 
   try {
+    const providerTarget = await validateProviderUrl(
+      provider.base_url,
+      provider.immutable ? 'operator' : (provider.allow_private ? 'private' : 'public')
+    );
     const response = await axios.post(`${provider.base_url}/chat/completions`, buildProviderChatBody(
       req.body,
       provider.models.split(',')[0].trim(),
       messages,
       true
     ), {
+      ...providerRequestConfig(providerTarget),
       headers: { 'Authorization': `Bearer ${resolveProviderApiKey(provider)}` },
       responseType: 'stream'
     });
@@ -2077,12 +2254,17 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
   }
 
   try {
+    const providerTarget = await validateProviderUrl(
+      provider.base_url,
+      provider.immutable ? 'operator' : (provider.allow_private ? 'private' : 'public')
+    );
     const response = await axios.post(`${provider.base_url}/chat/completions`, buildProviderChatBody(
       req.body,
       reqModel || provider.models.split(',')[0].trim(),
       messages,
       false
     ), {
+      ...providerRequestConfig(providerTarget),
       headers: { 'Authorization': `Bearer ${resolveProviderApiKey(provider)}` }
     });
 

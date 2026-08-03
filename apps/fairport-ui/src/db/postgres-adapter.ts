@@ -57,7 +57,8 @@ const SCHEMA: Record<string, string> = {
     owner_id TEXT,
     group_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private',
-    immutable INTEGER NOT NULL DEFAULT 0
+    immutable INTEGER NOT NULL DEFAULT 0,
+    allow_private INTEGER NOT NULL DEFAULT 0
   )`,
   model_pricing: `CREATE TABLE IF NOT EXISTS model_pricing (
     model_id TEXT PRIMARY KEY,
@@ -101,7 +102,7 @@ function toPgValue(val: any): any {
 
 function fromPgValue(table: string, col: string, val: any): any {
   if (val === null || val === undefined) return null;
-  if (table === 'providers' && col === 'immutable') return val === 1 || val === true;
+  if (table === 'providers' && (col === 'immutable' || col === 'allow_private')) return val === 1 || val === true;
   return val;
 }
 
@@ -252,6 +253,7 @@ export class PostgresAdapter implements DatabaseAdapter {
       for (const ddl of Object.values(SCHEMA)) {
         await client.query(ddl);
       }
+      await client.query('ALTER TABLE providers ADD COLUMN IF NOT EXISTS allow_private INTEGER NOT NULL DEFAULT 0');
     } finally {
       client.release();
     }

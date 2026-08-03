@@ -40,7 +40,8 @@ const SCHEMA: Record<string, string> = {
     base_url TEXT NOT NULL, models TEXT NOT NULL DEFAULT 'default',
     api_key TEXT NOT NULL DEFAULT '', owner_id TEXT, group_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private',
-    immutable INTEGER NOT NULL DEFAULT 0
+    immutable INTEGER NOT NULL DEFAULT 0,
+    allow_private INTEGER NOT NULL DEFAULT 0
   )`,
   model_pricing: `CREATE TABLE IF NOT EXISTS model_pricing (
     model_id TEXT PRIMARY KEY,
@@ -94,7 +95,7 @@ export class PGliteAdapter implements DatabaseAdapter {
         result[table] = rows.map((r: any) => {
           const obj: any = {};
           for (const key of Object.keys(r)) {
-            obj[key] = (key === 'immutable') ? (r[key] === 1 || r[key] === true) : r[key];
+            obj[key] = (key === 'immutable' || key === 'allow_private') ? (r[key] === 1 || r[key] === true) : r[key];
           }
           return obj;
         });
@@ -159,6 +160,7 @@ export class PGliteAdapter implements DatabaseAdapter {
     for (const ddl of Object.values(SCHEMA)) {
       await this.client.query(ddl);
     }
+    await this.client.query('ALTER TABLE providers ADD COLUMN IF NOT EXISTS allow_private INTEGER NOT NULL DEFAULT 0');
     this.initialized = true;
   }
 

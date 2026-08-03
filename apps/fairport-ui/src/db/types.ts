@@ -40,6 +40,7 @@ export interface Provider {
   group_id: string | null;
   visibility: string;
   immutable?: boolean;
+  allow_private?: boolean;
 }
 
 export interface Model {

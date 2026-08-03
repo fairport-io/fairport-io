@@ -86,6 +86,13 @@ The following security issues were identified and fixed:
 ### New endpoints
 - `POST /api/auth/oauth/exchange` — exchanges a short-lived one-time OAuth code for a JWT
 
+## Provider Connection Policy (2026-08-03)
+
+- `POST /api/providers/test` performs an authenticated, optional three-second `HEAD` reachability check without following redirects, limited to ten attempts per user per minute.
+- Provider hostnames are DNS-resolved and pinned for outbound requests. Global Admins may approve LAN/private/Kubernetes destinations; UI-created loopback, link-local, and metadata destinations remain forbidden.
+- Provider URL changes are limited to ten per user per minute. Only Global Admins may change an approved private-network provider's URL; other group-member edits remain available when that URL is unchanged.
+- Server-owned `providers.allow_private` records that approval and is migrated automatically for PGlite/PostgreSQL. Immutable `DEFAULT_PROVIDER_URL` providers retain their operator-controlled localhost exception.
+
 ## Chat Parameter Passthrough (2026-07-15)
 
 Both `/api/chat/stream` and `/v1/chat/completions` now preserve unrecognized top-level request fields when forwarding to the selected provider.
@@ -161,6 +168,7 @@ Hardened `/api/chat/stream` upstream SSE handling:
 
 ### Providers
 - `GET /api/providers` - List providers (accepts `?group_id=` to scope to a group)
+- `POST /api/providers/test` - Test an unsaved provider URL without creating it
 - `POST /api/providers` - Create provider (accepts `group_id` in body for group-owned providers)
 - `PUT /api/providers/:id` - Update provider (owner or group member; cannot update immutable providers)
 - `DELETE /api/providers/:id` - Delete provider (owner or group member; cannot delete immutable providers)

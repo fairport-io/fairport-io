@@ -109,6 +109,7 @@ Definitions
 | ✅    | pw    | /api        | -    | creates new key and shows one-time modal — app.spec.ts |
 | ✅    | pw    | /api        | -    | deletes the targeted key row — app.spec.ts |
 | ❌    | pw    | /api        | -    | enforces max 5 keys (flaky, skipped) |
+| ✅    | pw    | /providers  | POST | optional connection test sends the URL with authentication and reports success — app.spec.ts |
 | ❌    | pw    | /providers  | -    | creates a new provider (flaky, skipped) |
 | -     | pw    | /providers  | -    | immutable provider cannot be edited/deleted |
 
@@ -120,12 +121,17 @@ Definitions
 | ✅    | vi    | /api/providers      | POST   | invalid rate_limits format returns 400 — providers.test.ts |
 | ✅    | vi    | /api/providers      | POST   | invalid queue_max_size returns 400 — providers.test.ts |
 | ✅    | vi    | /api/providers      | POST   | duplicate name per user returns 409 — providers.test.ts |
+| ✅    | vi    | /api/providers      | POST   | non-admin private literals, cluster names, and mixed public/private DNS return 403 — providers.test.ts |
+| ✅    | vi    | /api/providers      | POST   | Global Admin may approve LAN/private/cluster destinations — providers.test.ts |
+| ✅    | vi    | /api/providers      | POST   | loopback, mapped IPv6 loopback, and link-local/metadata destinations remain forbidden for Global Admin — providers.test.ts |
 | -     |       | /api/providers      | POST   | duplicate name per group returns 409 |
 | -     |       | /api/providers      | POST   | API key encrypted at rest |
 | ✅    | vi    | /api/providers      | GET    | returns public + user-owned — providers.test.ts |
 | ✅    | vi    | /api/providers      | GET    | rate_limits + queue_max_size from model_pricing — providers.test.ts |
 | -     |       | /api/providers      | GET    | returns group providers when group_id provided |
 | ✅    | vi    | /api/providers/:id  | PUT    | owner can update — providers.test.ts |
+| ✅    | vi    | /api/providers/:id  | PUT    | unchanged admin-approved private URL does not block a group member's other edits — providers.test.ts |
+| ✅    | vi    | /api/providers/:id  | PUT    | group members cannot change an admin-approved private provider URL — providers.test.ts |
 | ✅    | vi    | /api/providers/:id  | PUT    | immutable provider returns 403 — providers.test.ts |
 | -     |       | /api/providers/:id  | PUT    | group member can update group provider |
 | -     |       | /api/providers/:id  | PUT    | non-owner returns 403 |
@@ -134,6 +140,16 @@ Definitions
 | ✅    | vi    | /api/providers/:id  | DELETE | immutable provider returns 403 — providers.test.ts |
 | -     |       | /api/providers/:id  | DELETE | group member can delete group provider |
 | -     |       | /api/providers/:id  | DELETE | non-owner returns 403 |
+
+## POST /api/providers/test
+
+| State | Suite | Endpoint            | Method | Test |
+|-------|-------|---------------------|--------|------|
+| ✅    | vi    | /api/providers/test | POST   | requires authentication — providers.test.ts |
+| ✅    | vi    | /api/providers/test | POST   | reports HTTP reachability with pinned DNS and without redirects or proxying — providers.test.ts |
+| ✅    | vi    | /api/providers/test | POST   | reports connection failures without saving — providers.test.ts |
+| ✅    | vi    | /api/providers/test | POST   | enforces private-address authorization — providers.test.ts |
+| ✅    | vi    | /api/providers/test | POST   | limits each user to ten tests per minute — providers.test.ts |
 
 ## /usage
 | State | Suite | Endpoint | Method | Test |

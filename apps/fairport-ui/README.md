@@ -45,6 +45,14 @@ Manage custom providers.
 
 <img width="1016" height="576" alt="image" src="https://github.com/user-attachments/assets/959fddd4-0545-44d0-882f-4363aaebdf3c" />
 
+The add form can run an optional three-second connection test, limited to ten
+tests per user per minute. Provider URLs are
+DNS-resolved before saving and again when used. Global Admins may approve LAN,
+private, and Kubernetes destinations; loopback, link-local, and metadata targets
+remain unavailable to UI-created providers. Only Global Admins may change an
+approved private-network provider's URL. Immutable `DEFAULT_PROVIDER_URL`
+providers remain operator-controlled.
+
 ### Usage
 
 View usage and billing details.
@@ -83,6 +91,8 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | **Keys** | Active key selector in header bar (persisted to localStorage) |
 | **Keys** | curl / Python code samples with copy button |
 | **Providers** | CRUD for AI providers (name, base URL, models, rate limits, queue max size, optional API key) |
+| **Providers** | Optional authenticated connection test before adding a provider |
+| **Providers** | Global Admin approval for LAN/private and Kubernetes endpoints; other users are limited to public destinations |
 | **Providers** | Immutable default provider (cannot be edited / deleted) |
 | **Providers** | Inline table editing with rate limits column |
 | **Providers** | Active provider selector in header bar |
@@ -284,16 +294,18 @@ providers:
     owner_id: null
     visibility: "public"
     immutable: true
+    allow_private: true
 
   - id: "provider-id-123e4567-e89b-12d3-a456-426614174008"
-    name: "Ollama Local"
-    base_url: "http://localhost:11434/v1"
+    name: "Example Provider"
+    base_url: "https://api.example.com/v1"
     models: "llama3.2,mistral,nomic-embed-text"
     api_key: ""
     owner_id: "user-id-123e4567-e89b-12d3-a456-426614174000"
     group_id: null
     visibility: "private"
     immutable: false
+    allow_private: false
 
 model_pricing:
   - model_id: "model-id-default"

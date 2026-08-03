@@ -1040,6 +1040,24 @@ export default function App() {
     }
   };
 
+  const testProvider = async (baseUrl: string): Promise<{ ok: boolean; message: string }> => {
+    try {
+      const res = await appFetch('/api/providers/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ base_url: baseUrl })
+      });
+      const data: { detail?: string; message?: string } = await res.json().catch(() => ({}));
+      return {
+        ok: res.ok,
+        message: data.detail || data.message || (res.ok ? 'Connection successful' : 'Connection failed')
+      };
+    } catch (err) {
+      console.error('Failed to test provider:', err);
+      return { ok: false, message: 'Network error' };
+    }
+  };
+
   const updateProvider = async (id: string, updates: { name?: string; base_url?: string; models?: string; api_key?: string; rate_limits?: string; queue_max_size?: number }): Promise<string | null> => {
     try {
       const res = await appFetch(`/api/providers/${id}`, {
@@ -1429,6 +1447,7 @@ export default function App() {
                     <ProviderManager 
                       providers={providers} 
                       onAdd={addProvider} 
+                      onTest={testProvider}
                       onUpdate={updateProvider}
                       onRemove={removeProvider} 
                     />
@@ -3270,9 +3289,10 @@ function ToggleButton({ active, onToggle }: { active: boolean; onToggle: () => v
   );
 }
 
-function ProviderManager({ providers, onAdd, onUpdate, onRemove }: {
+function ProviderManager({ providers, onAdd, onTest, onUpdate, onRemove }: {
   providers: Provider[];
   onAdd: (name: string, baseUrl: string, models: string, rateLimits?: string, apiKey?: string, queueMaxSize?: number) => Promise<string | null>;
+  onTest: (baseUrl: string) => Promise<{ ok: boolean; message: string }>;
   onUpdate: (id: string, updates: { name?: string; base_url?: string; models?: string; api_key?: string; rate_limits?: string; queue_max_size?: number }) => Promise<string | null>;
   onRemove: (id: string) => void;
 }) {
@@ -3284,6 +3304,8 @@ function ProviderManager({ providers, onAdd, onUpdate, onRemove }: {
   const [newQueueMaxSize, setNewQueueMaxSize] = useState(5);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; message: string; baseUrl: string } | null>(null);
   
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -3307,8 +3329,19 @@ function ProviderManager({ providers, onAdd, onUpdate, onRemove }: {
       setNewApiKey('');
       setNewRateLimits('');
       setNewQueueMaxSize(5);
+      setTestResult(null);
     }
     setCreating(false);
+  };
+
+  const handleTest = async () => {
+    if (!newUrl.trim() || testing) return;
+    const baseUrl = newUrl.trim();
+    setTesting(true);
+    setTestResult(null);
+    const result = await onTest(baseUrl);
+    setTestResult({ ...result, baseUrl });
+    setTesting(false);
   };
 
   const startEdit = (provider: Provider) => {
@@ -3368,8 +3401,11 @@ function ProviderManager({ providers, onAdd, onUpdate, onRemove }: {
               <input
                 type="text"
                 value={newUrl}
-                onChange={(e) => setNewUrl(e.target.value)}
-                placeholder="http://localhost:11434/v1"
+                onChange={(e) => {
+                  setNewUrl(e.target.value);
+                  setTestResult(null);
+                }}
+                placeholder="https://api.example.com/v1"
                 className="w-full bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-zinc-600"
               />
             </div>
@@ -3419,6 +3455,18 @@ function ProviderManager({ providers, onAdd, onUpdate, onRemove }: {
               />
             </div>
           </div>
+        <button
+          onClick={handleTest}
+          disabled={!newUrl.trim() || testing}
+          className="w-full bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 disabled:text-slate-400 dark:disabled:text-zinc-600 text-slate-700 dark:text-zinc-200 py-3 rounded-2xl font-bold transition-all flex items-center justify-center gap-2"
+        >
+          <Server className="w-4 h-4" /> {testing ? 'Testing...' : 'Test Connection'}
+        </button>
+        {testResult && testResult.baseUrl === newUrl.trim() && (
+          <p role={testResult.ok ? 'status' : 'alert'} className={`text-xs text-center ${testResult.ok ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>
+            {testResult.message}
+          </p>
+        )}
         <button
           onClick={handleAdd}
           disabled={!newName.trim() || !newUrl.trim() || creating}
