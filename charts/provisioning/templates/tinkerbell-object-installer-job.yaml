@@ -154,7 +154,16 @@ spec:
 
                     {{ if $workflow.wipe_all_disks }}
                     info "Wiping disks: $DISKS"
-                    wipefs -a $(echo "$DISKS" | awk '{print "/dev/" $1}' | tr '\n' ' ')
+                    if command -v vgchange > /dev/null 2>&1; then
+                        vgchange -an || crit "Failed to deactivate volume groups"
+                    fi
+
+                    for WIPE_DISK in $(echo "$DISKS" | awk '{print "/dev/" $1}'); do
+                        for WIPE_PARTITION in $(lsblk -lnp -o NAME,TYPE "$WIPE_DISK" | awk '$2 == "part" {print $1}'); do
+                            wipefs -a "$WIPE_PARTITION" || crit "Failed to wipe partition $WIPE_PARTITION"
+                        done
+                        wipefs -a "$WIPE_DISK" || crit "Failed to wipe disk $WIPE_DISK"
+                    done
                     {{- end }}
 
                     info "Streaming QCOW2 image $IMG_URL to /tmp/image.qcow2"
