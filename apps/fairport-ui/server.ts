@@ -138,6 +138,11 @@ type ResolvedAddress = { address: string; family: number };
 type ValidatedProviderUrl = { parsed: URL; addresses: ResolvedAddress[]; requiresPrivateAccess: boolean };
 const PROVIDER_DNS_TIMEOUT_MS = 3000;
 const PROVIDER_TEST_TIMEOUT_MS = 3000;
+const PROVIDER_MODELS_RESPONSE_MAX_BYTES = 1024 * 1024;
+const PROVIDER_MODELS_PATH_MAX_LENGTH = 1024;
+const PROVIDER_API_KEY_MAX_LENGTH = 8192;
+const PROVIDER_MODELS_MAX_COUNT = 1000;
+const PROVIDER_MODEL_ID_MAX_LENGTH = 256;
 
 class ProviderUrlError extends Error {
   constructor(public kind: 'invalid' | 'forbidden' | 'private' | 'dns', message: string) {
@@ -192,7 +197,10 @@ function classifyIp(rawIp: string): 'public' | 'private' | 'forbidden' {
   return 'public';
 }
 
-function parseProviderUrl(rawUrl: string): URL {
+function parseProviderUrl(rawUrl: unknown): URL {
+  if (typeof rawUrl !== 'string') {
+    throw new ProviderUrlError('invalid', 'Invalid base_url: Use a valid HTTP(S) URL');
+  }
   let parsed: URL;
   try {
     parsed = new URL(rawUrl);
@@ -204,6 +212,84 @@ function parseProviderUrl(rawUrl: string): URL {
     throw new ProviderUrlError('invalid', 'Invalid base_url: Use an HTTP(S) URL without credentials');
   }
   return parsed;
+}
+
+function resolveProviderModelsEndpoint(rawBaseUrl: string, rawModelsPath: unknown): { endpoint: URL; modelsPath: string } {
+  const baseUrl = parseProviderUrl(rawBaseUrl);
+  if (baseUrl.search || baseUrl.hash) {
+    throw new ProviderUrlError('invalid', 'Invalid base_url: Query strings and fragments are not supported');
+  }
+  if (rawModelsPath !== undefined && typeof rawModelsPath !== 'string') {
+    throw new ProviderUrlError('invalid', 'Invalid models_path: Use a path such as models or /v1/models');
+  }
+
+  const modelsPath = (rawModelsPath as string | undefined)?.trim() || 'models';
+  if (
+    modelsPath.length > PROVIDER_MODELS_PATH_MAX_LENGTH ||
+    modelsPath.startsWith('//') ||
+    /^[a-z][a-z\d+.-]*:/i.test(modelsPath) ||
+    /[\\?#\u0000-\u001f\u007f]/.test(modelsPath)
+  ) {
+    throw new ProviderUrlError('invalid', 'Invalid models_path: Use a same-origin path without a query or fragment');
+  }
+
+  for (const segment of modelsPath.split('/')) {
+    let decoded = segment;
+    try {
+      decoded = decodeURIComponent(segment);
+    } catch {
+      throw new ProviderUrlError('invalid', 'Invalid models_path: Path encoding is malformed');
+    }
+    if (
+      decoded === '.' || decoded === '..' ||
+      /[\\/?#\u0000-\u001f\u007f]/.test(decoded) ||
+      /%(?:25)*2e/i.test(segment) || /%(?:25)*(?:2f|5c)/i.test(segment)
+    ) {
+      throw new ProviderUrlError('invalid', 'Invalid models_path: Dot traversal and encoded separators are not supported');
+    }
+  }
+
+  const resolutionBase = new URL(baseUrl.toString());
+  resolutionBase.pathname = `${resolutionBase.pathname.replace(/\/+$/, '')}/`;
+  const endpoint = modelsPath.startsWith('/')
+    ? new URL(modelsPath, baseUrl.origin)
+    : new URL(modelsPath, resolutionBase);
+  if (endpoint.origin !== baseUrl.origin || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
+    throw new ProviderUrlError('invalid', 'Invalid models_path: Models endpoint must remain on the provider origin');
+  }
+  return { endpoint, modelsPath };
+}
+
+function parseProviderApiKey(rawApiKey: unknown): string | null {
+  if (rawApiKey === undefined) return null;
+  if (typeof rawApiKey !== 'string') {
+    throw new ProviderUrlError('invalid', 'Invalid api_key');
+  }
+  if (rawApiKey.length > PROVIDER_API_KEY_MAX_LENGTH || /[\u0000-\u001f\u007f]/.test(rawApiKey)) {
+    throw new ProviderUrlError('invalid', 'Invalid api_key');
+  }
+  const apiKey = rawApiKey.trim();
+  return apiKey || null;
+}
+
+function parseDiscoveredModelIds(data: unknown): string[] {
+  const rows = (data as any)?.data;
+  if (!Array.isArray(rows) || rows.length > PROVIDER_MODELS_MAX_COUNT) {
+    throw new Error('Models endpoint did not return an OpenAI-compatible data array');
+  }
+  const models: string[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const id = typeof row?.id === 'string' ? row.id.trim() : '';
+    if (!id || id.length > PROVIDER_MODEL_ID_MAX_LENGTH || /[,\u0000-\u001f\u007f]/.test(id)) {
+      throw new Error('Models endpoint returned an invalid model id');
+    }
+    if (!seen.has(id)) {
+      seen.add(id);
+      models.push(id);
+    }
+  }
+  return models;
 }
 
 async function resolveProviderHostname(hostname: string, timeoutMs: number): Promise<ResolvedAddress[]> {
@@ -392,6 +478,10 @@ async function ensureDefaults(db: any) {
     });
   }
 
+  for (const provider of db.providers) {
+    if (!provider.models_path) provider.models_path = 'models';
+  }
+
   // Ensure default provider exists
   if (!db.providers.some((p: any) => p.immutable === true)) {
     // C4: if SECRET_KEY is explicitly set, encrypt the key at rest.
@@ -412,7 +502,8 @@ async function ensureDefaults(db: any) {
       owner_id: null,
       visibility: "public",
       immutable: true,
-      allow_private: true
+      allow_private: true,
+      models_path: 'models'
     });
     await saveDb(db);
   } else {
@@ -1319,6 +1410,7 @@ app.get('/api/providers', async (req, res) => {
       name: p.name,
       base_url: p.base_url,
       models: p.models,
+      models_path: p.models_path || 'models',
       visibility: p.visibility,
       immutable: p.immutable,
       rate_limits: pricing?.rate_limits || APP_CONFIG.default_provider_model_rate_limits,
@@ -1331,27 +1423,70 @@ app.post('/api/providers/test', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
 
-  const { base_url } = req.body;
+  const { base_url, models_path, api_key } = req.body;
   if (!base_url) return res.status(400).json({ detail: "base_url is required" });
 
   // ponytail: this is per-process; move the limiter to shared storage for multi-instance enforcement.
   const rateLimit = rateLimiter.check(user.id, 'provider-connection-test', [{ limit: 10, windowMs: 60_000 }]);
   if (!rateLimit.allowed) return res.status(429).json({ detail: "Too many connection tests. Please try again later." });
 
+  let endpoint: string | undefined;
+  let requestSignal: AbortSignal | undefined;
   try {
     const deadline = Date.now() + PROVIDER_TEST_TIMEOUT_MS;
-    const target = await validateProviderUrl(base_url, isGlobalAdmin(user, db) ? 'private' : 'public', PROVIDER_TEST_TIMEOUT_MS);
+    const resolved = resolveProviderModelsEndpoint(base_url, models_path);
+    endpoint = resolved.endpoint.toString();
+    const providerApiKey = parseProviderApiKey(api_key);
+    const target = await validateProviderUrl(endpoint, isGlobalAdmin(user, db) ? 'private' : 'public', PROVIDER_TEST_TIMEOUT_MS);
     const timeout = deadline - Date.now();
     if (timeout <= 0) throw new ProviderUrlError('dns', 'Connection test timed out');
-    const response = await axios.head(base_url, {
+    requestSignal = AbortSignal.timeout(timeout);
+    const response = await axios.get(endpoint, {
       ...providerRequestConfig(target),
       timeout,
+      signal: requestSignal,
+      maxContentLength: PROVIDER_MODELS_RESPONSE_MAX_BYTES,
+      responseType: 'json',
+      headers: {
+        'Accept': 'application/json',
+        ...(providerApiKey ? { 'Authorization': `Bearer ${providerApiKey}` } : {}),
+      },
       validateStatus: () => true,
     });
-    return res.json({ ok: true, status: response.status, detail: `Endpoint reachable (HTTP ${response.status})` });
+    if (response.status < 200 || response.status >= 300) {
+      return res.status(502).json({
+        detail: `Models endpoint returned HTTP ${response.status}`,
+        status: response.status,
+        endpoint,
+      });
+    }
+    let models: string[];
+    try {
+      models = parseDiscoveredModelIds(response.data);
+    } catch (error: any) {
+      return res.status(502).json({ detail: error.message, status: response.status, endpoint });
+    }
+    return res.json({
+      ok: true,
+      status: response.status,
+      models,
+      endpoint,
+      detail: `Discovered ${models.length} model${models.length === 1 ? '' : 's'}`,
+    });
   } catch (error: any) {
     if (error instanceof ProviderUrlError) return sendProviderUrlError(res, error, true);
-    return res.status(502).json({ detail: `Connection failed: ${error.code || error.message || 'Unknown error'}` });
+    if (requestSignal?.aborted) {
+      return res.status(504).json({ detail: 'Models endpoint request timed out', ...(endpoint ? { endpoint } : {}) });
+    }
+    const upstreamStatus = typeof error.response?.status === 'number' ? error.response.status : undefined;
+    const upstreamCode = typeof error.code === 'string' && /^[A-Z\d_]{1,64}$/.test(error.code)
+      ? error.code
+      : 'UPSTREAM_ERROR';
+    return res.status(502).json({
+      detail: `Models endpoint request failed (${upstreamCode})`,
+      ...(upstreamStatus !== undefined ? { status: upstreamStatus } : {}),
+      ...(endpoint ? { endpoint } : {}),
+    });
   }
 });
 
@@ -1359,7 +1494,7 @@ app.post('/api/providers', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   
-  const { name, base_url, models, api_key, rate_limits, queue_max_size, group_id } = req.body;
+  const { name, base_url, models, models_path, api_key, rate_limits, queue_max_size, group_id } = req.body;
   if (!name || !base_url) {
     return res.status(400).json({ detail: "Name and base_url are required" });
   }
@@ -1367,7 +1502,9 @@ app.post('/api/providers', async (req, res) => {
   const urlRateLimit = rateLimiter.check(user.id, 'provider-url-change', [{ limit: 10, windowMs: 60_000 }]);
   if (!urlRateLimit.allowed) return res.status(429).json({ detail: "Too many provider URL changes. Please try again later." });
   let validatedUrl: ValidatedProviderUrl;
+  let normalizedModelsPath: string;
   try {
+    normalizedModelsPath = resolveProviderModelsEndpoint(base_url, models_path).modelsPath;
     validatedUrl = await validateProviderUrl(base_url, isGlobalAdmin(user, db) ? 'private' : 'public');
   } catch (error) {
     return sendProviderUrlError(res, error);
@@ -1401,6 +1538,7 @@ app.post('/api/providers', async (req, res) => {
     name,
     base_url,
     models: models || 'default',
+    models_path: normalizedModelsPath,
     api_key: api_key ? encryptProviderKey(api_key, user.id) : '',
     owner_id: user.id,
     group_id: group_id || null,
@@ -1454,7 +1592,7 @@ app.put('/api/providers/:id', async (req, res) => {
     return res.status(403).json({ detail: "Cannot modify this provider" });
   }
   
-  const { name, base_url, models, api_key, rate_limits, queue_max_size } = req.body;
+  const { name, base_url, models, models_path, api_key, rate_limits, queue_max_size } = req.body;
 
   let validatedUrl: ValidatedProviderUrl | null = null;
   const shouldValidateUrl = base_url && base_url !== provider.base_url;
@@ -1466,6 +1604,18 @@ app.put('/api/providers/:id', async (req, res) => {
     if (!urlRateLimit.allowed) return res.status(429).json({ detail: "Too many provider URL changes. Please try again later." });
     try {
       validatedUrl = await validateProviderUrl(base_url, isGlobalAdmin(user, db) ? 'private' : 'public');
+    } catch (error) {
+      return sendProviderUrlError(res, error);
+    }
+  }
+
+  let normalizedModelsPath: string | null = null;
+  if (shouldValidateUrl || models_path !== undefined) {
+    try {
+      normalizedModelsPath = resolveProviderModelsEndpoint(
+        shouldValidateUrl ? base_url : provider.base_url,
+        models_path !== undefined ? models_path : provider.models_path
+      ).modelsPath;
     } catch (error) {
       return sendProviderUrlError(res, error);
     }
@@ -1484,6 +1634,7 @@ app.put('/api/providers/:id', async (req, res) => {
     provider.allow_private = validatedUrl!.requiresPrivateAccess;
   }
   if (models) provider.models = models;
+  if (normalizedModelsPath !== null) provider.models_path = normalizedModelsPath;
   if (api_key !== undefined) {
     provider.api_key = api_key ? encryptProviderKey(api_key, user.id) : provider.api_key;
   }
@@ -1696,7 +1847,7 @@ app.get('/api/admin/users/:userId', async (req, res) => {
 
   const providers = db.providers
     .filter((p: any) => p.owner_id === targetUser.id)
-    .map((p: any) => ({ id: p.id, name: p.name, base_url: p.base_url, models: p.models }));
+    .map((p: any) => ({ id: p.id, name: p.name, base_url: p.base_url, models: p.models, models_path: p.models_path || 'models' }));
 
   const userGroups = db.groups
     .filter((g: any) => g.members.some((m: any) => m.ids.includes(targetUser.id)))

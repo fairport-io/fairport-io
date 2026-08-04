@@ -148,11 +148,19 @@ interface Provider {
   id: string;
   name: string;
   base_url: string;
+  models_path?: string;
   models: string;
   visibility: string;
   immutable: boolean;
   rate_limits?: string;
   queue_max_size?: number;
+}
+
+interface ProviderDiscoveryResult {
+  ok: boolean;
+  message: string;
+  models: string[];
+  endpoint: string;
 }
 
 interface ExtraParameterDraft {
@@ -1018,10 +1026,10 @@ export default function App() {
   };
 
   // --- Provider Handlers ---
-  const addProvider = async (name: string, baseUrl: string, models: string, rateLimits?: string, apiKey?: string, queueMaxSize?: number): Promise<string | null> => {
+  const addProvider = async (name: string, baseUrl: string, models: string, modelsPath: string, rateLimits?: string, apiKey?: string, queueMaxSize?: number): Promise<string | null> => {
     try {
       const groupId = activeIdentity?.type === 'group' ? activeIdentity.id : undefined;
-      const body: any = { name, base_url: baseUrl, models, rate_limits: rateLimits, api_key: apiKey || undefined, queue_max_size: queueMaxSize };
+      const body: any = { name, base_url: baseUrl, models, models_path: modelsPath, rate_limits: rateLimits, api_key: apiKey || undefined, queue_max_size: queueMaxSize };
       if (groupId) body.group_id = groupId;
       const res = await appFetch('/api/providers', {
         method: 'POST',
@@ -1040,25 +1048,27 @@ export default function App() {
     }
   };
 
-  const testProvider = async (baseUrl: string): Promise<{ ok: boolean; message: string }> => {
+  const testProvider = async (baseUrl: string, modelsPath: string, apiKey?: string): Promise<ProviderDiscoveryResult> => {
     try {
       const res = await appFetch('/api/providers/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
-        body: JSON.stringify({ base_url: baseUrl })
+        body: JSON.stringify({ base_url: baseUrl, models_path: modelsPath, api_key: apiKey || undefined })
       });
-      const data: { detail?: string; message?: string } = await res.json().catch(() => ({}));
+      const data: { detail?: string; message?: string; models?: unknown; endpoint?: unknown } = await res.json().catch(() => ({}));
       return {
         ok: res.ok,
-        message: data.detail || data.message || (res.ok ? 'Connection successful' : 'Connection failed')
+        message: data.detail || data.message || (res.ok ? 'Connection successful' : 'Connection failed'),
+        models: Array.isArray(data.models) ? data.models.filter((model): model is string => typeof model === 'string') : [],
+        endpoint: typeof data.endpoint === 'string' ? data.endpoint : ''
       };
     } catch (err) {
       console.error('Failed to test provider:', err);
-      return { ok: false, message: 'Network error' };
+      return { ok: false, message: 'Network error', models: [], endpoint: '' };
     }
   };
 
-  const updateProvider = async (id: string, updates: { name?: string; base_url?: string; models?: string; api_key?: string; rate_limits?: string; queue_max_size?: number }): Promise<string | null> => {
+  const updateProvider = async (id: string, updates: { name?: string; base_url?: string; models?: string; models_path?: string; api_key?: string; rate_limits?: string; queue_max_size?: number }): Promise<string | null> => {
     try {
       const res = await appFetch(`/api/providers/${id}`, {
         method: 'PUT',
@@ -3289,58 +3299,150 @@ function ToggleButton({ active, onToggle }: { active: boolean; onToggle: () => v
   );
 }
 
+function resolveModelsEndpointPreview(baseUrl: string, modelsPath: string): string {
+  if (!baseUrl.trim()) return '';
+  try {
+    const base = new URL(baseUrl.trim());
+    const path = modelsPath.trim() || 'models';
+    const decodedPath = decodeURIComponent(path);
+    if (
+      !['http:', 'https:'].includes(base.protocol)
+      || base.username
+      || base.password
+      || base.search
+      || base.hash
+      || path.startsWith('//')
+      || /^[a-z][a-z\d+.-]*:/i.test(path)
+      || /[\\?#\u0000-\u001f\u007f]/.test(path)
+      || /%(?:25)*2e/i.test(path)
+      || /%(?:25)*(?:2f|5c)/i.test(path)
+      || /[\\?#\u0000-\u001f\u007f]/.test(decodedPath)
+      || decodedPath.split('/').some(segment => segment === '.' || segment === '..')
+    ) return '';
+    base.pathname = `${base.pathname.replace(/\/+$/, '')}/`;
+    return new URL(path, base).toString();
+  } catch {
+    return '';
+  }
+}
+
 function ProviderManager({ providers, onAdd, onTest, onUpdate, onRemove }: {
   providers: Provider[];
-  onAdd: (name: string, baseUrl: string, models: string, rateLimits?: string, apiKey?: string, queueMaxSize?: number) => Promise<string | null>;
-  onTest: (baseUrl: string) => Promise<{ ok: boolean; message: string }>;
-  onUpdate: (id: string, updates: { name?: string; base_url?: string; models?: string; api_key?: string; rate_limits?: string; queue_max_size?: number }) => Promise<string | null>;
+  onAdd: (name: string, baseUrl: string, models: string, modelsPath: string, rateLimits?: string, apiKey?: string, queueMaxSize?: number) => Promise<string | null>;
+  onTest: (baseUrl: string, modelsPath: string, apiKey?: string) => Promise<ProviderDiscoveryResult>;
+  onUpdate: (id: string, updates: { name?: string; base_url?: string; models?: string; models_path?: string; api_key?: string; rate_limits?: string; queue_max_size?: number }) => Promise<string | null>;
   onRemove: (id: string) => void;
 }) {
   const [newName, setNewName] = useState('');
   const [newUrl, setNewUrl] = useState('');
   const [newModels, setNewModels] = useState('');
+  const newModelsRef = useRef('');
+  const autoDiscoveredModelsRef = useRef<string | null>(null);
+  const [newModelsPath, setNewModelsPath] = useState('models');
   const [newApiKey, setNewApiKey] = useState('');
   const [newRateLimits, setNewRateLimits] = useState('');
   const [newQueueMaxSize, setNewQueueMaxSize] = useState(5);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ ok: boolean; message: string; baseUrl: string } | null>(null);
+  const [testResult, setTestResult] = useState<(ProviderDiscoveryResult & { baseUrl: string; modelsPath: string; apiKey: string }) | null>(null);
+  const discoveryVersion = useRef(0);
   
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
   const [editUrl, setEditUrl] = useState('');
   const [editModels, setEditModels] = useState('');
+  const [editModelsPath, setEditModelsPath] = useState('models');
   const [editApiKey, setEditApiKey] = useState('');
   const [editRateLimits, setEditRateLimits] = useState('');
   const [editQueueMaxSize, setEditQueueMaxSize] = useState(5);
 
+  const invalidateDiscovery = () => {
+    discoveryVersion.current += 1;
+    setTestResult(null);
+    setError(null);
+    if (autoDiscoveredModelsRef.current && newModelsRef.current === autoDiscoveredModelsRef.current) {
+      newModelsRef.current = '';
+      setNewModels('');
+    }
+    autoDiscoveredModelsRef.current = null;
+  };
+
+  const discoverModels = async () => {
+    const baseUrl = newUrl.trim();
+    const modelsPath = newModelsPath.trim() || 'models';
+    const apiKey = newApiKey.trim();
+    const version = ++discoveryVersion.current;
+    setTestResult(null);
+    const result = await onTest(baseUrl, modelsPath, apiKey || undefined);
+    if (version !== discoveryVersion.current) return null;
+    setTestResult({ ...result, baseUrl, modelsPath, apiKey });
+    return result;
+  };
+
   const handleAdd = async () => {
-    if (!newName.trim() || !newUrl.trim() || creating) return;
+    if (!newName.trim() || !newUrl.trim() || creating || testing) return;
     setCreating(true);
     setError(null);
-    const err = await onAdd(newName.trim(), newUrl.trim(), newModels.trim() || 'default', newRateLimits.trim() || undefined, newApiKey.trim() || undefined, newQueueMaxSize);
+    let models = newModels.trim();
+    if (!models) {
+      const discovery = await discoverModels();
+      if (!discovery) {
+        setError('Provider details changed during model discovery. Please try again.');
+        setCreating(false);
+        return;
+      }
+      const manuallyEnteredModels = newModelsRef.current.trim();
+      if (manuallyEnteredModels) {
+        models = manuallyEnteredModels;
+      } else if (!discovery.ok) {
+        setError(`Model discovery failed: ${discovery.message} Enter models manually to continue.`);
+        setCreating(false);
+        return;
+      } else if (discovery.models.length === 0) {
+        setError('No models were discovered. Enter at least one model manually to continue.');
+        setCreating(false);
+        return;
+      } else {
+        models = discovery.models.join(',');
+        autoDiscoveredModelsRef.current = models;
+        newModelsRef.current = models;
+        setNewModels(models);
+      }
+    }
+    const err = await onAdd(newName.trim(), newUrl.trim(), models, newModelsPath.trim() || 'models', newRateLimits.trim() || undefined, newApiKey.trim() || undefined, newQueueMaxSize);
     if (err) {
       setError(err);
     } else {
       setNewName('');
       setNewUrl('');
+      newModelsRef.current = '';
+      autoDiscoveredModelsRef.current = null;
       setNewModels('');
+      setNewModelsPath('models');
       setNewApiKey('');
       setNewRateLimits('');
       setNewQueueMaxSize(5);
+      discoveryVersion.current += 1;
       setTestResult(null);
     }
     setCreating(false);
   };
 
   const handleTest = async () => {
-    if (!newUrl.trim() || testing) return;
-    const baseUrl = newUrl.trim();
+    if (!newUrl.trim() || testing || creating) return;
     setTesting(true);
-    setTestResult(null);
-    const result = await onTest(baseUrl);
-    setTestResult({ ...result, baseUrl });
+    setError(null);
+    const result = await discoverModels();
+    if (result?.ok && result.models.length > 0) {
+      setNewModels(current => {
+        if (current.trim()) return current;
+        const models = result.models.join(',');
+        autoDiscoveredModelsRef.current = models;
+        newModelsRef.current = models;
+        return models;
+      });
+    }
     setTesting(false);
   };
 
@@ -3349,6 +3451,7 @@ function ProviderManager({ providers, onAdd, onTest, onUpdate, onRemove }: {
     setEditName(provider.name);
     setEditUrl(provider.base_url);
     setEditModels(provider.models);
+    setEditModelsPath(provider.models_path || 'models');
     setEditApiKey('');
     setEditRateLimits(provider.rate_limits || '');
     setEditQueueMaxSize(provider.queue_max_size ?? 5);
@@ -3359,6 +3462,7 @@ function ProviderManager({ providers, onAdd, onTest, onUpdate, onRemove }: {
     setEditName('');
     setEditUrl('');
     setEditModels('');
+    setEditModelsPath('models');
     setEditApiKey('');
     setEditRateLimits('');
     setEditQueueMaxSize(5);
@@ -3370,111 +3474,184 @@ function ProviderManager({ providers, onAdd, onTest, onUpdate, onRemove }: {
       name: editName.trim(),
       base_url: editUrl.trim(),
       models: editModels.trim(),
+      models_path: editModelsPath.trim() || 'models',
       api_key: editApiKey.trim(),
       rate_limits: editRateLimits.trim() || undefined,
       queue_max_size: editQueueMaxSize
     });
-    if (!err) {
+    if (err) {
+      setError(err);
+    } else {
       cancelEdit();
     }
   };
+
+  const normalizedModelsPath = newModelsPath.trim() || 'models';
+  const currentTestResult = testResult
+    && testResult.baseUrl === newUrl.trim()
+    && testResult.modelsPath === normalizedModelsPath
+    && testResult.apiKey === newApiKey.trim()
+    ? testResult
+    : null;
+  const discoveredModels = currentTestResult?.models.join(',') || '';
+  const modelsEndpointPreview = resolveModelsEndpointPreview(newUrl, normalizedModelsPath);
 
   return (
     <div className="space-y-6">
       {/* Add New Provider Form */}
       <div className="space-y-4">
         <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-500">Add New Provider</h3>
-          <div className="grid grid-cols-4 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500 ml-1">Name</label>
-              <input
-                type="text"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value.slice(0, 64))}
-                maxLength={64}
-                placeholder="e.g. Ollama Local"
-                className="w-full bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-zinc-600"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500 ml-1">URL</label>
-              <input
-                type="text"
-                value={newUrl}
-                onChange={(e) => {
-                  setNewUrl(e.target.value);
-                  setTestResult(null);
-                }}
-                placeholder="https://api.example.com/v1"
-                className="w-full bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-zinc-600"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500 ml-1">Models</label>
-              <input
-                type="text"
-                value={newModels}
-                onChange={(e) => setNewModels(e.target.value)}
-                placeholder="llama3,mistral"
-                className="w-full bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-zinc-600"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500 ml-1">Rate Limits</label>
-              <input
-                type="text"
-                value={newRateLimits}
-                onChange={(e) => setNewRateLimits(e.target.value)}
-                placeholder="10:request:minute,1:request:second"
-                pattern="^(\d+:request:(second|minute|hour|day),?)+$"
-                title="Format: limit:request:unit (e.g. 10:request:minute,1:request:second)"
-                className="w-full bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-zinc-600"
-              />
-            </div>
+        <div className="space-y-1.5">
+          <label htmlFor="provider-name" className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500 ml-1">Name</label>
+          <input
+            id="provider-name"
+            type="text"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value.slice(0, 64))}
+            maxLength={64}
+            placeholder="e.g. Ollama Local"
+            className="w-full bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-zinc-600"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="provider-base-url" className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500 ml-1">API Base URL</label>
+          <input
+            id="provider-base-url"
+            type="url"
+            value={newUrl}
+            onChange={(e) => {
+              setNewUrl(e.target.value);
+              invalidateDiscovery();
+            }}
+            placeholder="https://api.example.com/v1"
+            aria-describedby="provider-base-url-help"
+            className="w-full bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-zinc-600"
+          />
+          <p id="provider-base-url-help" className="px-1 text-xs text-slate-400 dark:text-zinc-500">Private, LAN, and cluster-local endpoints can only be saved by super admins.</p>
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="provider-models" className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500 ml-1">Models</label>
+          <input
+            id="provider-models"
+            type="text"
+            value={newModels}
+            onChange={(e) => {
+              autoDiscoveredModelsRef.current = null;
+              newModelsRef.current = e.target.value;
+              setNewModels(e.target.value);
+            }}
+            placeholder="llama3,mistral"
+            aria-describedby="provider-models-help"
+            className="w-full bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-zinc-600"
+          />
+          <p id="provider-models-help" className="px-1 text-xs text-slate-400 dark:text-zinc-500">Comma-separated. Leave blank to discover models when you test or add the provider.</p>
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="provider-api-key" className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500 ml-1">API Key</label>
+          <input
+            id="provider-api-key"
+            type="password"
+            value={newApiKey}
+            onChange={(e) => {
+              setNewApiKey(e.target.value);
+              invalidateDiscovery();
+            }}
+            maxLength={8192}
+            placeholder="API Key (optional)"
+            className="w-full bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-zinc-600"
+          />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <label htmlFor="provider-rate-limits" className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500 ml-1">Rate Limits</label>
+            <input
+              id="provider-rate-limits"
+              type="text"
+              value={newRateLimits}
+              onChange={(e) => setNewRateLimits(e.target.value)}
+              placeholder="10:request:minute"
+              pattern="^(\d+:request:(second|minute|hour|day),?)+$"
+              title="Format: limit:request:unit (e.g. 10:request:minute,1:request:second)"
+              className="w-full bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-zinc-600"
+            />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500 ml-1">API Key</label>
-              <input
-                type="password"
-                value={newApiKey}
-                onChange={(e) => setNewApiKey(e.target.value)}
-                placeholder="API Key (optional)"
-                className="w-full bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-zinc-600"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500 ml-1">Queue Max Size</label>
-              <input
-                type="number"
-                value={newQueueMaxSize}
-                onChange={(e) => setNewQueueMaxSize(parseInt(e.target.value, 10) || 1)}
-                min={1}
-                placeholder="5"
-                className="w-full bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-zinc-600"
-              />
-            </div>
+          <div className="space-y-1.5">
+            <label htmlFor="provider-queue-size" className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500 ml-1">Queue Max Size</label>
+            <input
+              id="provider-queue-size"
+              type="number"
+              value={newQueueMaxSize}
+              onChange={(e) => setNewQueueMaxSize(parseInt(e.target.value, 10) || 1)}
+              min={1}
+              placeholder="5"
+              className="w-full bg-slate-50 dark:bg-zinc-800/50 border border-slate-200 dark:border-zinc-800 rounded-2xl p-4 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none transition-all placeholder:text-slate-400 dark:placeholder:text-zinc-600"
+            />
           </div>
+        </div>
+        <details className="rounded-2xl border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-800/30 p-4">
+          <summary className="cursor-pointer text-sm font-bold text-slate-700 dark:text-zinc-200">Advanced</summary>
+          <div className="mt-4 space-y-2">
+            <label htmlFor="provider-models-path" className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">Models Path</label>
+            <input
+              id="provider-models-path"
+              type="text"
+              value={newModelsPath}
+              onChange={(e) => {
+                setNewModelsPath(e.target.value);
+                invalidateDiscovery();
+              }}
+              maxLength={1024}
+              placeholder="models"
+              aria-describedby="provider-models-path-help provider-models-endpoint"
+              className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl p-3 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+            />
+            <p id="provider-models-path-help" className="text-xs leading-5 text-slate-500 dark:text-zinc-400">Relative paths append to the API base. Start with / for an exact same-origin path. Enter a path, not a full URL.</p>
+            {modelsEndpointPreview && (
+              <p id="provider-models-endpoint" className="text-xs text-slate-500 dark:text-zinc-400">
+                Resolved models endpoint: <code className="font-mono break-all text-slate-700 dark:text-zinc-200">{modelsEndpointPreview}</code>
+              </p>
+            )}
+          </div>
+        </details>
         <button
           onClick={handleTest}
-          disabled={!newUrl.trim() || testing}
+          disabled={!newUrl.trim() || testing || creating}
           className="w-full bg-slate-100 hover:bg-slate-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 disabled:text-slate-400 dark:disabled:text-zinc-600 text-slate-700 dark:text-zinc-200 py-3 rounded-2xl font-bold transition-all flex items-center justify-center gap-2"
         >
           <Server className="w-4 h-4" /> {testing ? 'Testing...' : 'Test Connection'}
         </button>
-        {testResult && testResult.baseUrl === newUrl.trim() && (
-          <p role={testResult.ok ? 'status' : 'alert'} className={`text-xs text-center ${testResult.ok ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}>
-            {testResult.message}
-          </p>
+        {currentTestResult && (
+          <div role={currentTestResult.ok ? 'status' : 'alert'} className={`rounded-2xl px-4 py-3 text-xs ${currentTestResult.ok ? 'bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-400' : 'bg-red-50 text-red-600 dark:bg-red-950/30 dark:text-red-400'}`}>
+            <p className="font-semibold">{currentTestResult.message}</p>
+            {currentTestResult.endpoint && <p className="mt-1 break-all font-mono">{currentTestResult.endpoint}</p>}
+            {currentTestResult.ok && (
+              <div className="mt-2 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <span>{currentTestResult.models.length > 0 ? `${currentTestResult.models.length} model${currentTestResult.models.length === 1 ? '' : 's'} discovered.` : 'No models returned.'}</span>
+                {discoveredModels && newModels.trim() && newModels.trim() !== discoveredModels && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      autoDiscoveredModelsRef.current = discoveredModels;
+                      newModelsRef.current = discoveredModels;
+                      setNewModels(discoveredModels);
+                    }}
+                    className="font-bold underline underline-offset-2 hover:no-underline"
+                  >
+                    Use discovered models
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         )}
         <button
           onClick={handleAdd}
-          disabled={!newName.trim() || !newUrl.trim() || creating}
+          disabled={!newName.trim() || !newUrl.trim() || creating || testing}
           className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 dark:disabled:bg-zinc-800 disabled:text-slate-500 dark:disabled:text-zinc-600 text-white py-3 rounded-2xl font-bold shadow-lg shadow-indigo-600/20 active:scale-[0.99] transition-all flex items-center justify-center gap-2"
         >
           <Plus className="w-4 h-4" /> {creating ? 'Adding...' : 'Add Provider'}
         </button>
-        {error && <p className="text-xs text-red-500 text-center">{error}</p>}
+        {error && <p role="alert" className="text-xs text-red-500 text-center">{error}</p>}
       </div>
 
       {/* Providers List */}
@@ -3485,145 +3662,176 @@ function ProviderManager({ providers, onAdd, onTest, onUpdate, onRemove }: {
             No providers configured.
           </div>
         ) : (
-            <div className="rounded-2xl border border-slate-200 dark:border-zinc-800 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-slate-50 dark:bg-zinc-800/50 border-b border-slate-200 dark:border-zinc-800">
-                  <th className="text-left p-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">Name</th>
-                  <th className="text-left p-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">URL</th>
-                  <th className="text-left p-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">Models</th>
-                  <th className="text-left p-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">Rate Limits</th>
-                  <th className="text-left p-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">Queue</th>
-                  <th className="text-right p-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {providers.map(provider => (
-                  <tr key={provider.id} className="border-b border-slate-100 dark:border-zinc-800 last:border-b-0 hover:bg-slate-50 dark:hover:bg-zinc-800/30 transition-colors">
-                    {editingId === provider.id ? (
-                      <>
-                        <td className="p-2">
-                          <input
-                            type="text"
-                            value={editName}
-                            onChange={(e) => setEditName(e.target.value)}
-                            className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg p-2 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none"
-                          />
-                        </td>
-                        <td className="p-2">
-                          <input
-                            type="text"
-                            value={editUrl}
-                            onChange={(e) => setEditUrl(e.target.value)}
-                            className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg p-2 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none"
-                          />
-                        </td>
-                        <td className="p-2">
-                          <input
-                            type="text"
-                            value={editModels}
-                            onChange={(e) => setEditModels(e.target.value)}
-                            className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg p-2 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none"
-                          />
-                        </td>
-                        <td className="p-2">
-                          <input
-                            type="text"
-                            value={editRateLimits}
-                            onChange={(e) => setEditRateLimits(e.target.value)}
-                            placeholder="10:request:minute,1:request:second"
-                            pattern="^(\d+:request:(second|minute|hour|day),?)+$"
-                            title="Format: limit:request:unit (e.g. 10:request:minute,1:request:second)"
-                            className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg p-2 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none"
-                          />
-                        </td>
-                        <td className="p-2">
-                          <input
-                            type="number"
-                            value={editQueueMaxSize}
-                            onChange={(e) => setEditQueueMaxSize(parseInt(e.target.value, 10) || 1)}
-                            min={1}
-                            placeholder="5"
-                            className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg p-2 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none"
-                          />
-                        </td>
-                        <td className="p-2">
-                          <input
-                            type="password"
-                            value={editApiKey}
-                            onChange={(e) => setEditApiKey(e.target.value)}
-                            placeholder="API Key (optional)"
-                            className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg p-2 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none"
-                          />
-                        </td>
-                        <td className="p-2">
-                          <div className="flex items-center justify-end gap-1">
+          <div data-testid="configured-providers" className="divide-y divide-slate-200 dark:divide-zinc-800 rounded-2xl border border-slate-200 dark:border-zinc-800 overflow-hidden">
+            {providers.map(provider => (
+              <article key={provider.id} className="min-w-0 p-4 sm:p-5 hover:bg-slate-50 dark:hover:bg-zinc-800/30 transition-colors">
+                {editingId === provider.id ? (
+                  <div className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label htmlFor={`edit-provider-name-${provider.id}`} className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">Name</label>
+                      <input
+                        id={`edit-provider-name-${provider.id}`}
+                        type="text"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl p-3 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label htmlFor={`edit-provider-url-${provider.id}`} className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">API Base URL</label>
+                      <input
+                        id={`edit-provider-url-${provider.id}`}
+                        type="url"
+                        value={editUrl}
+                        onChange={(e) => setEditUrl(e.target.value)}
+                        className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl p-3 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label htmlFor={`edit-provider-models-${provider.id}`} className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">Models</label>
+                      <input
+                        id={`edit-provider-models-${provider.id}`}
+                        type="text"
+                        value={editModels}
+                        onChange={(e) => setEditModels(e.target.value)}
+                        className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl p-3 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label htmlFor={`edit-provider-api-key-${provider.id}`} className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">API Key</label>
+                      <input
+                        id={`edit-provider-api-key-${provider.id}`}
+                        type="password"
+                        value={editApiKey}
+                        onChange={(e) => setEditApiKey(e.target.value)}
+                        maxLength={8192}
+                        placeholder="API Key (optional)"
+                        className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl p-3 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <label htmlFor={`edit-provider-rate-${provider.id}`} className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">Rate Limits</label>
+                        <input
+                          id={`edit-provider-rate-${provider.id}`}
+                          type="text"
+                          value={editRateLimits}
+                          onChange={(e) => setEditRateLimits(e.target.value)}
+                          placeholder="10:request:minute"
+                          pattern="^(\d+:request:(second|minute|hour|day),?)+$"
+                          title="Format: limit:request:unit (e.g. 10:request:minute,1:request:second)"
+                          className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl p-3 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label htmlFor={`edit-provider-queue-${provider.id}`} className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">Queue Max Size</label>
+                        <input
+                          id={`edit-provider-queue-${provider.id}`}
+                          type="number"
+                          value={editQueueMaxSize}
+                          onChange={(e) => setEditQueueMaxSize(parseInt(e.target.value, 10) || 1)}
+                          min={1}
+                          placeholder="5"
+                          className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl p-3 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
+                      </div>
+                    </div>
+                    <details className="rounded-xl border border-slate-200 dark:border-zinc-700 p-3">
+                      <summary className="cursor-pointer text-sm font-bold text-slate-700 dark:text-zinc-200">Advanced</summary>
+                      <div className="mt-3 space-y-2">
+                        <label htmlFor={`edit-provider-models-path-${provider.id}`} className="block text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-500">Models Path</label>
+                        <input
+                          id={`edit-provider-models-path-${provider.id}`}
+                          type="text"
+                          value={editModelsPath}
+                          onChange={(e) => setEditModelsPath(e.target.value)}
+                          maxLength={1024}
+                          className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl p-3 text-sm text-slate-900 dark:text-zinc-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
+                        <p className="text-xs text-slate-500 dark:text-zinc-400 break-all">Resolved models endpoint: <code>{resolveModelsEndpointPreview(editUrl, editModelsPath) || 'Enter a valid API base URL'}</code></p>
+                      </div>
+                    </details>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={cancelEdit}
+                        aria-label="Cancel editing"
+                        className="flex items-center gap-2 px-4 py-2 hover:bg-slate-100 dark:hover:bg-zinc-700 text-slate-600 dark:text-zinc-300 rounded-xl transition-colors"
+                      >
+                        <X className="w-4 h-4" /> Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={saveEdit}
+                        aria-label="Save provider"
+                        className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-xl transition-colors"
+                      >
+                        <Check className="w-4 h-4" /> Save
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <header className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <div className="mt-1.5 w-2 h-2 flex-none rounded-full bg-slate-300 dark:bg-zinc-700" />
+                        <h4 className="min-w-0 font-bold text-slate-700 dark:text-zinc-200 [overflow-wrap:anywhere]">{provider.name}</h4>
+                      </div>
+                      <div className="flex flex-none items-center gap-1">
+                        {provider.immutable ? (
+                          <span className="rounded-full bg-slate-100 dark:bg-zinc-800 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">Managed</span>
+                        ) : (
+                          <>
                             <button
-                              onClick={saveEdit}
-                              className="p-2 hover:bg-green-50 dark:hover:bg-green-950/30 text-green-600 rounded-xl transition-colors"
-                            >
-                              <Check className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={cancelEdit}
+                              type="button"
+                              onClick={() => startEdit(provider)}
+                              aria-label={`Edit ${provider.name}`}
                               className="p-2 hover:bg-slate-100 dark:hover:bg-zinc-700 text-slate-500 rounded-xl transition-colors"
                             >
-                              <X className="w-4 h-4" />
+                              <Pencil className="w-4 h-4" />
                             </button>
-                          </div>
-                        </td>
-                      </>
-                    ) : (
-                      <>
-                        <td className="p-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-2 h-2 rounded-full bg-slate-300 dark:bg-zinc-700" />
-                            <span className="font-bold text-slate-700 dark:text-zinc-200">{provider.name}</span>
-
-                          </div>
-                        </td>
-                        <td className="p-4 font-mono text-xs text-slate-500 dark:text-zinc-400">{provider.base_url}</td>
-                        <td className="p-4">
-                          <div className="flex flex-wrap gap-1">
-                            {provider.models.split(',').map((model, i) => (
-                              <span key={i} className="text-[11px] font-mono bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 px-2 py-0.5 rounded-full">{model.trim()}</span>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="p-4 font-mono text-xs text-slate-500 dark:text-zinc-400">
-                          {(provider.rate_limits || 'default').split(',').map((r, i) => <div key={i}>{r.trim()}</div>)}
-                        </td>
-                        <td className="p-4 font-mono text-xs text-slate-500 dark:text-zinc-400">
-                          {provider.queue_max_size ?? 5}
-                        </td>
-                        <td className="p-4">
-                          <div className="flex items-center justify-end gap-1">
-                            {!provider.immutable && (
-                              <>
-                                <button
-                                  onClick={() => startEdit(provider)}
-                                  aria-label="Edit"
-                                  className="p-2 hover:bg-slate-100 dark:hover:bg-zinc-700 text-slate-500 rounded-xl transition-colors"
-                                >
-                                  <Pencil className="w-4 h-4" />
-                                </button>
-                                <button
-                                  onClick={() => onRemove(provider.id)}
-                                  aria-label="Delete"
-                                  className="p-2 hover:bg-red-50 dark:hover:bg-red-950/30 text-red-500 rounded-xl transition-colors"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                            <button
+                              type="button"
+                              onClick={() => onRemove(provider.id)}
+                              aria-label={`Delete ${provider.name}`}
+                              className="p-2 hover:bg-red-50 dark:hover:bg-red-950/30 text-red-500 rounded-xl transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </header>
+                    <dl className="mt-4 grid min-w-0 grid-cols-1 gap-4 text-sm sm:grid-cols-2">
+                      <div className="min-w-0 sm:col-span-2">
+                        <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">API Base URL</dt>
+                        <dd className="mt-1 break-all font-mono text-xs text-slate-600 dark:text-zinc-300">{provider.base_url}</dd>
+                      </div>
+                      <div className="min-w-0 sm:col-span-2">
+                        <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Models</dt>
+                        <dd className="mt-1 flex min-w-0 flex-wrap gap-1">
+                          {provider.models.split(',').filter(model => model.trim()).map((model, i) => (
+                            <span key={i} className="max-w-full break-all whitespace-normal rounded-full bg-slate-100 dark:bg-zinc-800 px-2 py-0.5 font-mono text-[11px] text-slate-600 dark:text-zinc-400">{model.trim()}</span>
+                          ))}
+                        </dd>
+                      </div>
+                      <div className="min-w-0 sm:col-span-2">
+                        <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Models Path</dt>
+                        <dd className="mt-1 break-all font-mono text-xs text-slate-600 dark:text-zinc-300">{provider.models_path || 'models'}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Rate Limits</dt>
+                        <dd className="mt-1 break-all font-mono text-xs text-slate-600 dark:text-zinc-300">{provider.rate_limits || 'default'}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Queue Max Size</dt>
+                        <dd className="mt-1 font-mono text-xs text-slate-600 dark:text-zinc-300">{provider.queue_max_size ?? 5}</dd>
+                      </div>
+                    </dl>
+                  </>
+                )}
+              </article>
+            ))}
           </div>
         )}
       </div>

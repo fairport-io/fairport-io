@@ -38,6 +38,7 @@ const SCHEMA: Record<string, string> = {
   providers: `CREATE TABLE IF NOT EXISTS providers (
     id TEXT PRIMARY KEY, name TEXT NOT NULL,
     base_url TEXT NOT NULL, models TEXT NOT NULL DEFAULT 'default',
+    models_path TEXT NOT NULL DEFAULT 'models',
     api_key TEXT NOT NULL DEFAULT '', owner_id TEXT, group_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private',
     immutable INTEGER NOT NULL DEFAULT 0,
@@ -111,7 +112,10 @@ export class PGliteAdapter implements DatabaseAdapter {
     await this.ensureTables();
     try {
       for (const table of TABLES) {
-        const records = (data as any)[table] || [];
+        const sourceRecords = (data as any)[table] || [];
+        const records = table === 'providers'
+          ? sourceRecords.map((record: any) => ({ ...record, models_path: record.models_path || 'models' }))
+          : sourceRecords;
         const sqlTable = TABLE_MAP[table];
         await this.client.query(`DELETE FROM "${sqlTable}"`);
 
@@ -161,6 +165,7 @@ export class PGliteAdapter implements DatabaseAdapter {
       await this.client.query(ddl);
     }
     await this.client.query('ALTER TABLE providers ADD COLUMN IF NOT EXISTS allow_private INTEGER NOT NULL DEFAULT 0');
+    await this.client.query("ALTER TABLE providers ADD COLUMN IF NOT EXISTS models_path TEXT NOT NULL DEFAULT 'models'");
     this.initialized = true;
   }
 

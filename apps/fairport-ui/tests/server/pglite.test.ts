@@ -59,6 +59,7 @@ describe('PGliteAdapter', () => {
       messages: [],
       providers: [
         { id: 'prov-id-1', name: 'openai', base_url: 'https://api.openai.com/v1', models: 'gpt-4', api_key: 'sk-xxx', owner_id: 'user-id-1', group_id: null, visibility: 'public', immutable: false },
+        { id: 'prov-id-2', name: 'custom', base_url: 'https://api.example.com/v1', models: 'custom', models_path: 'custom/models', api_key: '', owner_id: 'user-id-1', group_id: null, visibility: 'private', immutable: false },
       ],
       model_pricing: [
         { model_id: 'gpt-4', input_cost_per_1m_tokens: 10, output_cost_per_1m_tokens: 30, rate_limits: '10:request:minute', queue_max_size: 5 },
@@ -93,8 +94,10 @@ describe('PGliteAdapter', () => {
     expect(loaded.groups).toHaveLength(1);
     expect(loaded.groups[0].members).toEqual([{ ids: ['*'], role_ids: ['role-id-1'] }]);
 
-    expect(loaded.providers).toHaveLength(1);
+    expect(loaded.providers).toHaveLength(2);
     expect(loaded.providers[0].immutable).toBe(false);
+    expect(loaded.providers[0].models_path).toBe('models');
+    expect(loaded.providers[1].models_path).toBe('custom/models');
 
     expect(loaded.model_pricing).toHaveLength(1);
     expect(loaded.model_pricing[0].input_cost_per_1m_tokens).toBe(10);

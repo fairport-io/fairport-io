@@ -45,8 +45,16 @@ Manage custom providers.
 
 <img width="1016" height="576" alt="image" src="https://github.com/user-attachments/assets/959fddd4-0545-44d0-882f-4363aaebdf3c" />
 
-The add form can run an optional three-second connection test, limited to ten
-tests per user per minute. Provider URLs are
+The add form can run an optional three-second model-discovery test, limited to
+ten tests per user per minute. It sends `GET` to `models` beneath the API base
+URL by default (for example, `/v1/models`), or to a configured same-origin
+`models_path`. Relative paths append to the API base; a leading `/` selects an
+exact path on the same origin. URLs, traversal, queries, and fragments are
+rejected. The test accepts an optional API key as a Bearer credential. A test
+succeeds only for a 2xx OpenAI-compatible `{"data":[{"id":"..."}]}` response;
+responses are capped at 1 MiB. Discovered models populate an empty Models field,
+while manually entered models remain available as an explicit override. Adding
+with an empty Models field runs discovery first. Provider URLs are
 DNS-resolved before saving and again when used. Global Admins may approve LAN,
 private, and Kubernetes destinations; loopback, link-local, and metadata targets
 remain unavailable to UI-created providers. Only Global Admins may change an
@@ -90,11 +98,11 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | **Keys** | One-time full key reveal modal on creation with copy button |
 | **Keys** | Active key selector in header bar (persisted to localStorage) |
 | **Keys** | curl / Python code samples with copy button |
-| **Providers** | CRUD for AI providers (name, base URL, models, rate limits, queue max size, optional API key) |
-| **Providers** | Optional authenticated connection test before adding a provider |
+| **Providers** | CRUD for AI providers (name, base URL, models path, models, rate limits, queue max size, optional API key) |
+| **Providers** | Optional authenticated model discovery before adding a provider |
 | **Providers** | Global Admin approval for LAN/private and Kubernetes endpoints; other users are limited to public destinations |
 | **Providers** | Immutable default provider (cannot be edited / deleted) |
-| **Providers** | Inline table editing with rate limits column |
+| **Providers** | Responsive provider cards with wrapping URLs/models and inline editing |
 | **Providers** | Active provider selector in header bar |
 | **Chat** | SSE streaming chat |
 | **Chat** | Per-chat Extra Parameters modal with typed JSON values, refresh persistence, and reserved-field protection |
@@ -290,6 +298,7 @@ providers:
     name: "default"
     base_url: "http://localhost:1234/v1"
     models: "default"
+    models_path: "models"
     api_key: "sk-xxxx"
     owner_id: null
     visibility: "public"
@@ -300,6 +309,7 @@ providers:
     name: "Example Provider"
     base_url: "https://api.example.com/v1"
     models: "llama3.2,mistral,nomic-embed-text"
+    models_path: "models"
     api_key: ""
     owner_id: "user-id-123e4567-e89b-12d3-a456-426614174000"
     group_id: null

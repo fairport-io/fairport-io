@@ -35,6 +35,7 @@ export interface Provider {
   name: string;
   base_url: string;
   models: string;
+  models_path?: string;
   api_key: string;
   owner_id: string | null;
   group_id: string | null;

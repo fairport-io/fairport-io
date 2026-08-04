@@ -109,14 +109,15 @@ Definitions
 | ✅    | pw    | /api        | -    | creates new key and shows one-time modal — app.spec.ts |
 | ✅    | pw    | /api        | -    | deletes the targeted key row — app.spec.ts |
 | ❌    | pw    | /api        | -    | enforces max 5 keys (flaky, skipped) |
-| ✅    | pw    | /providers  | POST | optional connection test sends the URL with authentication and reports success — app.spec.ts |
+| ✅    | pw    | /providers  | POST | model discovery sends URL/path/key, fills blank models, and preserves manual overrides — app.spec.ts |
+| ✅    | pw    | /providers  | POST | blank-model add discovers first, stops on failure, and accepts manual or in-flight overrides — app.spec.ts |
 | ❌    | pw    | /providers  | -    | creates a new provider (flaky, skipped) |
-| -     | pw    | /providers  | -    | immutable provider cannot be edited/deleted |
+| ✅    | pw    | /providers  | -    | immutable provider is shown as managed without edit/delete actions — app.spec.ts |
 
 ## /api/providers
 | State | Suite | Endpoint            | Method | Test |
 |-------|-------|---------------------|--------|------|
-| ✅    | vi    | /api/providers      | POST   | creates with name + base_url — providers.test.ts |
+| ✅    | vi    | /api/providers      | POST   | creates with name, base_url, and persisted models_path — providers.test.ts |
 | ✅    | vi    | /api/providers      | POST   | missing name/base_url returns 400 — providers.test.ts |
 | ✅    | vi    | /api/providers      | POST   | invalid rate_limits format returns 400 — providers.test.ts |
 | ✅    | vi    | /api/providers      | POST   | invalid queue_max_size returns 400 — providers.test.ts |
@@ -126,10 +127,10 @@ Definitions
 | ✅    | vi    | /api/providers      | POST   | loopback, mapped IPv6 loopback, and link-local/metadata destinations remain forbidden for Global Admin — providers.test.ts |
 | -     |       | /api/providers      | POST   | duplicate name per group returns 409 |
 | -     |       | /api/providers      | POST   | API key encrypted at rest |
-| ✅    | vi    | /api/providers      | GET    | returns public + user-owned — providers.test.ts |
+| ✅    | vi    | /api/providers      | GET    | returns public + user-owned providers with models_path — providers.test.ts |
 | ✅    | vi    | /api/providers      | GET    | rate_limits + queue_max_size from model_pricing — providers.test.ts |
 | -     |       | /api/providers      | GET    | returns group providers when group_id provided |
-| ✅    | vi    | /api/providers/:id  | PUT    | owner can update — providers.test.ts |
+| ✅    | vi    | /api/providers/:id  | PUT    | owner can update provider fields and models_path — providers.test.ts |
 | ✅    | vi    | /api/providers/:id  | PUT    | unchanged admin-approved private URL does not block a group member's other edits — providers.test.ts |
 | ✅    | vi    | /api/providers/:id  | PUT    | group members cannot change an admin-approved private provider URL — providers.test.ts |
 | ✅    | vi    | /api/providers/:id  | PUT    | immutable provider returns 403 — providers.test.ts |
@@ -146,9 +147,10 @@ Definitions
 | State | Suite | Endpoint            | Method | Test |
 |-------|-------|---------------------|--------|------|
 | ✅    | vi    | /api/providers/test | POST   | requires authentication — providers.test.ts |
-| ✅    | vi    | /api/providers/test | POST   | reports HTTP reachability with pinned DNS and without redirects or proxying — providers.test.ts |
-| ✅    | vi    | /api/providers/test | POST   | reports connection failures without saving — providers.test.ts |
-| ✅    | vi    | /api/providers/test | POST   | enforces private-address authorization — providers.test.ts |
+| ✅    | vi    | /api/providers/test | POST   | discovers, trims, and deduplicates OpenAI model IDs with pinned DNS, optional Bearer auth, response cap, no redirects, and no proxy — providers.test.ts |
+| ✅    | vi    | /api/providers/test | POST   | resolves relative/root models paths and rejects URL escapes, traversal, queries, fragments, and encoded separators — providers.test.ts |
+| ✅    | vi    | /api/providers/test | POST   | reports non-2xx, malformed, unsafe-ID, excessive-count, timeout, and connection failures without saving or echoing secrets — providers.test.ts |
+| ✅    | vi    | /api/providers/test | POST   | denies private discovery to ordinary users and allows Global Admin discovery from cluster-local providers — providers.test.ts |
 | ✅    | vi    | /api/providers/test | POST   | limits each user to ten tests per minute — providers.test.ts |
 
 ## /usage

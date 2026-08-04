@@ -252,10 +252,28 @@ test('providers: shows default provider as immutable', async () => {
   await sharedPage.keyboard.press('Escape');
   await sharedPage.waitForTimeout(200);
   await sharedPage.getByRole('button', { name: 'Providers' }).click();
-  await expect(sharedPage.locator('table')).toBeVisible();
+  const configuredProviders = sharedPage.getByTestId('configured-providers');
+  await expect(configuredProviders).toBeVisible();
+  await expect(configuredProviders.getByText('Managed').first()).toBeVisible();
+
+  const wideFieldBoxes = await Promise.all([
+    sharedPage.getByLabel('Name').first().boundingBox(),
+    sharedPage.getByLabel('API Base URL').first().boundingBox(),
+    sharedPage.getByLabel('Models').first().boundingBox(),
+    sharedPage.getByLabel('API Key').first().boundingBox(),
+  ]);
+  const wideFieldWidths = wideFieldBoxes.map(box => box?.width || 0);
+  expect(Math.min(...wideFieldWidths)).toBeGreaterThan(400);
+  expect(Math.max(...wideFieldWidths) - Math.min(...wideFieldWidths)).toBeLessThan(2);
+
+  const configuredProviderWidth = await configuredProviders.evaluate(element => ({
+    client: element.clientWidth,
+    scroll: element.scrollWidth,
+  }));
+  expect(configuredProviderWidth.scroll).toBeLessThanOrEqual(configuredProviderWidth.client);
 });
 
-test('providers: tests a new provider connection', async () => {
+test('providers: discovers models without overwriting manual choices', async () => {
   await cleanModals();
   await sharedPage.getByRole('button', { name: 'Providers' }).click();
   let requestBody: any;
@@ -263,20 +281,145 @@ test('providers: tests a new provider connection', async () => {
   await sharedPage.route('**/api/providers/test', async route => {
     requestBody = route.request().postDataJSON();
     authorization = route.request().headers().authorization;
+    const baseUrl = requestBody.base_url.endsWith('/') ? requestBody.base_url : `${requestBody.base_url}/`;
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ message: 'Connection successful' }),
+      body: JSON.stringify({
+        ok: true,
+        status: 200,
+        models: ['discovered-a', 'discovered-b'],
+        endpoint: new URL(requestBody.models_path, baseUrl).toString(),
+        detail: 'Connection successful',
+      }),
     });
   });
 
-  await sharedPage.getByPlaceholder('https://api.example.com/v1').fill('https://example.com/v1');
+  await sharedPage.getByLabel('API Base URL').first().fill('https://example.com/v1');
+  await sharedPage.getByLabel('API Key').first().fill('sk-discovery');
+  await sharedPage.getByLabel('Models').first().fill('');
+  await sharedPage.getByText('Advanced', { exact: true }).first().click();
+  const modelsPathInput = sharedPage.getByLabel('Models Path').first();
+  await modelsPathInput.fill('%252e%252e/models');
+  await expect(sharedPage.getByText(/Resolved models endpoint:/)).toHaveCount(0);
+  await modelsPathInput.fill('models%3Fscope=all');
+  await expect(sharedPage.getByText(/Resolved models endpoint:/)).toHaveCount(0);
+  await modelsPathInput.fill('models%23fragment');
+  await expect(sharedPage.getByText(/Resolved models endpoint:/)).toHaveCount(0);
+  await modelsPathInput.fill('catalog/models');
+  await expect(sharedPage.getByText(/Resolved models endpoint:/).first()).toContainText('https://example.com/v1/catalog/models');
   await sharedPage.getByRole('button', { name: 'Test Connection' }).click();
 
-  await expect.poll(() => requestBody).toEqual({ base_url: 'https://example.com/v1' });
+  await expect.poll(() => requestBody).toEqual({
+    base_url: 'https://example.com/v1',
+    models_path: 'catalog/models',
+    api_key: 'sk-discovery',
+  });
   expect(authorization).toMatch(/^Bearer /);
-  await expect(sharedPage.getByRole('status')).toHaveText('Connection successful');
+  await expect(sharedPage.getByRole('status')).toContainText('Connection successful');
+  await expect(sharedPage.getByRole('status')).toContainText('https://example.com/v1/catalog/models');
+  await expect(sharedPage.getByLabel('Models').first()).toHaveValue('discovered-a,discovered-b');
+
+  await sharedPage.getByLabel('API Base URL').first().fill('https://example.com/v2');
+  await expect(sharedPage.getByLabel('Models').first()).toHaveValue('');
+  await sharedPage.getByLabel('Models').first().fill('manual-model');
+  await sharedPage.getByLabel('Models Path').first().fill('/models-v2');
+  await sharedPage.getByLabel('API Key').first().fill('sk-discovery-v2');
+  await expect(sharedPage.getByLabel('Models').first()).toHaveValue('manual-model');
+  await sharedPage.getByRole('button', { name: 'Test Connection' }).click();
+
+  await expect(sharedPage.getByLabel('Models').first()).toHaveValue('manual-model');
+  await sharedPage.getByRole('button', { name: 'Use discovered models' }).click();
+  await expect(sharedPage.getByLabel('Models').first()).toHaveValue('discovered-a,discovered-b');
   await sharedPage.unroute('**/api/providers/test');
+});
+
+test('providers: discovers blank models before add and stops on discovery errors', async () => {
+  await cleanModals();
+  await sharedPage.getByRole('button', { name: 'Providers' }).click();
+  const discoveryBodies: any[] = [];
+  const createBodies: any[] = [];
+  let releaseSlowDiscovery: (() => void) | undefined;
+
+  await sharedPage.route('**/api/providers/test', async route => {
+    const body = route.request().postDataJSON();
+    discoveryBodies.push(body);
+    if (body.base_url.includes('slow')) {
+      await new Promise<void>(resolve => { releaseSlowDiscovery = resolve; });
+    }
+    const unavailable = body.base_url.includes('unavailable');
+    await route.fulfill({
+      status: unavailable ? 502 : 200,
+      contentType: 'application/json',
+      body: JSON.stringify(unavailable
+        ? { detail: 'Endpoint unavailable', status: 503, endpoint: `${body.base_url}/models` }
+        : { ok: true, status: 200, models: ['auto-a', 'auto-b'], endpoint: `${body.base_url}/models`, detail: 'Connection successful' }),
+    });
+  });
+  await sharedPage.route('**/api/providers', async route => {
+    if (route.request().method() !== 'POST') {
+      await route.continue();
+      return;
+    }
+    const body = route.request().postDataJSON();
+    createBodies.push(body);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ id: `provider-${createBodies.length}`, ...body }),
+    });
+  });
+
+  await sharedPage.getByLabel('Name').first().fill('Discovered Provider');
+  await sharedPage.getByLabel('API Base URL').first().fill('https://working.example/v1');
+  await sharedPage.getByLabel('Models').first().fill('');
+  await sharedPage.getByLabel('API Key').first().fill('');
+  const modelsPathInput = sharedPage.getByLabel('Models Path').first();
+  if (!await modelsPathInput.isVisible()) {
+    await sharedPage.getByText('Advanced', { exact: true }).first().click();
+  }
+  await modelsPathInput.fill('models');
+  await sharedPage.getByRole('button', { name: 'Add Provider' }).click();
+
+  await expect.poll(() => createBodies.length).toBe(1);
+  expect(discoveryBodies).toHaveLength(1);
+  expect(createBodies[0]).toMatchObject({
+    name: 'Discovered Provider',
+    base_url: 'https://working.example/v1',
+    models: 'auto-a,auto-b',
+    models_path: 'models',
+  });
+  await expect(sharedPage.getByLabel('Name').first()).toHaveValue('');
+
+  await sharedPage.getByLabel('Name').first().fill('Unavailable Provider');
+  await sharedPage.getByLabel('API Base URL').first().fill('https://unavailable.example/v1');
+  await sharedPage.getByLabel('Models').first().fill('');
+  await sharedPage.getByRole('button', { name: 'Add Provider' }).click();
+
+  await expect(sharedPage.getByText(/Model discovery failed: Endpoint unavailable/)).toBeVisible();
+  expect(createBodies).toHaveLength(1);
+  expect(discoveryBodies).toHaveLength(2);
+
+  await sharedPage.getByLabel('Models').first().fill('manual-model');
+  await sharedPage.getByRole('button', { name: 'Add Provider' }).click();
+  await expect.poll(() => createBodies.length).toBe(2);
+  expect(discoveryBodies).toHaveLength(2);
+  expect(createBodies[1].models).toBe('manual-model');
+
+  await expect(sharedPage.getByLabel('Name').first()).toHaveValue('');
+  await sharedPage.getByLabel('Name').first().fill('Slow Provider');
+  await sharedPage.getByLabel('API Base URL').first().fill('https://slow.example/v1');
+  await sharedPage.getByLabel('Models').first().fill('');
+  await sharedPage.getByRole('button', { name: 'Add Provider' }).click();
+  await expect.poll(() => discoveryBodies.length).toBe(3);
+  await sharedPage.getByLabel('Models').first().fill('typed-during-discovery');
+  releaseSlowDiscovery?.();
+  await expect.poll(() => createBodies.length).toBe(3);
+  expect(createBodies[2].models).toBe('typed-during-discovery');
+  await expect(sharedPage.getByLabel('Name').first()).toHaveValue('');
+
+  await sharedPage.unroute('**/api/providers/test');
+  await sharedPage.unroute('**/api/providers');
 });
 
 test.skip('providers: creates a new provider', async () => {
@@ -317,7 +460,7 @@ test.skip('providers: deletes a provider', async () => {
   await sharedPage.getByPlaceholder('llama3,mistral').fill('llama3,mistral');
   await sharedPage.getByRole('button', { name: 'Add Provider' }).click();
   await sharedPage.waitForTimeout(300);
-  await sharedPage.locator('button[aria-label="Delete"]').first().click();
+  await sharedPage.locator('button[aria-label^="Delete "]').first().click();
   await expect(sharedPage.locator('text=delete-me-provider').first()).not.toBeVisible();
 });
 

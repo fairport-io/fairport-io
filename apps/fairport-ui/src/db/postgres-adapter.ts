@@ -53,6 +53,7 @@ const SCHEMA: Record<string, string> = {
     name TEXT NOT NULL,
     base_url TEXT NOT NULL,
     models TEXT NOT NULL DEFAULT 'default',
+    models_path TEXT NOT NULL DEFAULT 'models',
     api_key TEXT NOT NULL DEFAULT '',
     owner_id TEXT,
     group_id TEXT,
@@ -141,7 +142,10 @@ export class PostgresAdapter implements DatabaseAdapter {
     try {
       await client.query('BEGIN');
       for (const table of TABLES) {
-        const records = (data as any)[table] || [];
+        const sourceRecords = (data as any)[table] || [];
+        const records = table === 'providers'
+          ? sourceRecords.map((record: any) => ({ ...record, models_path: record.models_path || 'models' }))
+          : sourceRecords;
         const sqlTable = TABLE_MAP[table];
         await client.query(`DELETE FROM "${sqlTable}"`);
 
@@ -254,6 +258,7 @@ export class PostgresAdapter implements DatabaseAdapter {
         await client.query(ddl);
       }
       await client.query('ALTER TABLE providers ADD COLUMN IF NOT EXISTS allow_private INTEGER NOT NULL DEFAULT 0');
+      await client.query("ALTER TABLE providers ADD COLUMN IF NOT EXISTS models_path TEXT NOT NULL DEFAULT 'models'");
     } finally {
       client.release();
     }

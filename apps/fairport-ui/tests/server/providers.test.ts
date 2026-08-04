@@ -13,6 +13,7 @@ let app: any;
 let token: string;
 let adminToken: string;
 let testRateToken: string;
+let modelsTestToken: string;
 let providerId: string;
 let adminPrivateGroupProviderId: string;
 let lookupSpy: any;
@@ -45,6 +46,11 @@ beforeAll(async () => {
     .post('/api/auth/signup')
     .send({ username: `provider-test-rate-${Date.now()}@example.com`, password: 'password123' });
   testRateToken = rateRes.body.token;
+
+  const modelsRes = await request(app)
+    .post('/api/auth/signup')
+    .send({ username: `provider-test-models-${Date.now()}@example.com`, password: 'password123' });
+  modelsTestToken = modelsRes.body.token;
 });
 
 const auth = () => ({ Authorization: `Bearer ${token}` });
@@ -64,11 +70,13 @@ describe('POST /api/providers', () => {
         name: 'my-provider',
         base_url: 'http://example.com/v1',
         models: 'llama3,mistral',
+        models_path: 'custom/models',
         api_key: 'sk-test-key',
       });
 
     expect(res.status).toBe(200);
     expect(res.body.name).toBe('my-provider');
+    expect(res.body.models_path).toBe('custom/models');
     expect(res.body.immutable).toBe(false);
     expect(res.body.api_key).not.toBe('sk-test-key');
   });
@@ -180,17 +188,34 @@ describe('POST /api/providers/test', () => {
     expect(res.status).toBe(401);
   });
 
-  it('reports a reachable HTTP endpoint without following redirects or using a proxy', async () => {
-    const headSpy = vi.spyOn(axios, 'head').mockResolvedValueOnce({ status: 204 } as any);
+  it('discovers models using an unsaved API key without weakening the request controls', async () => {
+    const getSpy = vi.spyOn(axios, 'get').mockResolvedValueOnce({
+      status: 200,
+      data: { data: [{ id: ' model-a ' }, { id: 'model-b' }, { id: 'model-a' }] },
+    } as any);
     const res = await request(app)
       .post('/api/providers/test')
       .set(auth())
-      .send({ base_url: 'http://public.test/v1' });
+      .send({ base_url: 'http://public.test/v1', api_key: ' sk-model-test ' });
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ok: true, status: 204, detail: 'Endpoint reachable (HTTP 204)' });
-    const config: any = headSpy.mock.calls[0][1];
-    expect(config).toMatchObject({ maxRedirects: 0, proxy: false });
+    expect(res.body).toEqual({
+      ok: true,
+      status: 200,
+      models: ['model-a', 'model-b'],
+      endpoint: 'http://public.test/v1/models',
+      detail: 'Discovered 2 models',
+    });
+    expect(JSON.stringify(res.body)).not.toContain('sk-model-test');
+    expect(getSpy.mock.calls[0][0]).toBe('http://public.test/v1/models');
+    const config: any = getSpy.mock.calls[0][1];
+    expect(config).toMatchObject({
+      maxRedirects: 0,
+      proxy: false,
+      maxContentLength: 1024 * 1024,
+      responseType: 'json',
+      headers: { Accept: 'application/json', Authorization: 'Bearer sk-model-test' },
+    });
     expect(config.timeout).toBeGreaterThan(0);
     expect(config.timeout).toBeLessThanOrEqual(3000);
 
@@ -207,19 +232,45 @@ describe('POST /api/providers/test', () => {
       lookup('service.default', { family: 4 }, (error: Error | null) => resolve(error));
     });
     expect(redirected.code).toBe('EACCES');
-    headSpy.mockRestore();
+    getSpy.mockRestore();
   });
 
-  it('reports connection failures without saving a provider', async () => {
-    const headSpy = vi.spyOn(axios, 'head').mockRejectedValueOnce(Object.assign(new Error('refused'), { code: 'ECONNREFUSED' }));
+  it('reports connection failures without echoing the API key', async () => {
+    const getSpy = vi.spyOn(axios, 'get').mockRejectedValueOnce(Object.assign(new Error('refused'), { code: 'ECONNREFUSED' }));
+    const res = await request(app)
+      .post('/api/providers/test')
+      .set(auth())
+      .send({ base_url: 'http://public.test/v1', api_key: 'sk-do-not-echo' });
+
+    expect(res.status).toBe(502);
+    expect(res.body).toMatchObject({
+      detail: 'Models endpoint request failed (ECONNREFUSED)',
+      endpoint: 'http://public.test/v1/models',
+    });
+    expect(JSON.stringify(res.body)).not.toContain('sk-do-not-echo');
+    getSpy.mockRestore();
+  });
+
+  it('uses a wall-clock abort signal for the total models request deadline', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValueOnce(controller.signal);
+    const getSpy = vi.spyOn(axios, 'get').mockRejectedValueOnce(Object.assign(new Error('canceled'), { code: 'ERR_CANCELED' }));
     const res = await request(app)
       .post('/api/providers/test')
       .set(auth())
       .send({ base_url: 'http://public.test/v1' });
 
-    expect(res.status).toBe(502);
-    expect(res.body.detail).toContain('ECONNREFUSED');
-    headSpy.mockRestore();
+    expect(res.status).toBe(504);
+    expect(res.body).toEqual({
+      detail: 'Models endpoint request timed out',
+      endpoint: 'http://public.test/v1/models',
+    });
+    expect(timeoutSpy.mock.calls[0][0]).toBeGreaterThan(0);
+    expect(timeoutSpy.mock.calls[0][0]).toBeLessThanOrEqual(3000);
+    expect(getSpy.mock.calls[0][1]).toMatchObject({ signal: controller.signal });
+    getSpy.mockRestore();
+    timeoutSpy.mockRestore();
   });
 
   it('applies the same private-address authorization as provider changes', async () => {
@@ -231,8 +282,147 @@ describe('POST /api/providers/test', () => {
     expect(res.status).toBe(403);
   });
 
+  it('lets Global Admins discover models from a cluster-local provider', async () => {
+    const getSpy = vi.spyOn(axios, 'get').mockResolvedValueOnce({
+      status: 200,
+      data: { data: [{ id: 'llama3-8b' }, { id: 'llama-guard3-8b' }] },
+    } as any);
+    const res = await request(app)
+      .post('/api/providers/test')
+      .set(adminAuth())
+      .send({ base_url: 'http://service.default/openai/v1' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      models: ['llama3-8b', 'llama-guard3-8b'],
+      endpoint: 'http://service.default/openai/v1/models',
+    });
+    expect(getSpy.mock.calls[0][0]).toBe('http://service.default/openai/v1/models');
+    getSpy.mockRestore();
+  });
+
+  it('supports relative and root-absolute models paths on the provider origin', async () => {
+    const getSpy = vi.spyOn(axios, 'get').mockResolvedValue({ status: 200, data: { data: [{ id: 'model-a' }] } } as any);
+    const relative = await request(app)
+      .post('/api/providers/test')
+      .set({ Authorization: `Bearer ${modelsTestToken}` })
+      .send({ base_url: 'http://public.test/v1', models_path: 'custom/models' });
+    const absolute = await request(app)
+      .post('/api/providers/test')
+      .set({ Authorization: `Bearer ${modelsTestToken}` })
+      .send({ base_url: 'http://public.test/v1', models_path: '/openai/v1/models' });
+
+    expect(relative.body.endpoint).toBe('http://public.test/v1/custom/models');
+    expect(absolute.body.endpoint).toBe('http://public.test/openai/v1/models');
+    expect(getSpy.mock.calls.map(call => call[0])).toEqual([
+      'http://public.test/v1/custom/models',
+      'http://public.test/openai/v1/models',
+    ]);
+    getSpy.mockRestore();
+  });
+
+  it('returns the upstream status and endpoint for non-2xx or malformed model responses', async () => {
+    const getSpy = vi.spyOn(axios, 'get')
+      .mockResolvedValueOnce({ status: 401, data: { secret: 'not echoed' } } as any)
+      .mockResolvedValueOnce({ status: 200, data: { models: [] } } as any);
+    const unauthorized = await request(app)
+      .post('/api/providers/test')
+      .set({ Authorization: `Bearer ${modelsTestToken}` })
+      .send({ base_url: 'http://public.test/v1' });
+    const malformed = await request(app)
+      .post('/api/providers/test')
+      .set({ Authorization: `Bearer ${modelsTestToken}` })
+      .send({ base_url: 'http://public.test/v1' });
+
+    expect(unauthorized.status).toBe(502);
+    expect(unauthorized.body).toEqual({
+      detail: 'Models endpoint returned HTTP 401',
+      status: 401,
+      endpoint: 'http://public.test/v1/models',
+    });
+    expect(malformed.status).toBe(502);
+    expect(malformed.body).toMatchObject({ status: 200, endpoint: 'http://public.test/v1/models' });
+    expect(malformed.body.detail).toContain('OpenAI-compatible');
+    expect(JSON.stringify(unauthorized.body)).not.toContain('not echoed');
+    getSpy.mockRestore();
+  });
+
+  it('rejects unsafe model IDs and excessive model counts', async () => {
+    const getSpy = vi.spyOn(axios, 'get')
+      .mockResolvedValueOnce({ status: 200, data: { data: [{ id: 'model-a,model-b' }] } } as any)
+      .mockResolvedValueOnce({
+        status: 200,
+        data: { data: Array.from({ length: 1001 }, (_, i) => ({ id: `model-${i}` })) },
+      } as any);
+    const unsafeId = await request(app)
+      .post('/api/providers/test')
+      .set({ Authorization: `Bearer ${modelsTestToken}` })
+      .send({ base_url: 'http://public.test/v1' });
+    const excessive = await request(app)
+      .post('/api/providers/test')
+      .set({ Authorization: `Bearer ${modelsTestToken}` })
+      .send({ base_url: 'http://public.test/v1' });
+
+    expect(unsafeId.status).toBe(502);
+    expect(unsafeId.body.detail).toContain('invalid model id');
+    expect(excessive.status).toBe(502);
+    expect(excessive.body.detail).toContain('OpenAI-compatible');
+    getSpy.mockRestore();
+  });
+
+  it('rejects URL-like, traversing, queried, fragmented, or encoded-separator models paths', async () => {
+    const getSpy = vi.spyOn(axios, 'get').mockResolvedValue({ status: 200, data: { data: [] } } as any);
+    for (const modelsPath of [
+      'https://evil.example/models',
+      '//evil.example/models',
+      '../models',
+      'models?scope=all',
+      'models#fragment',
+      '%2e%2e/models',
+      'custom%2fmodels',
+    ]) {
+      const res = await request(app)
+        .post('/api/providers/test')
+        .set(adminAuth())
+        .send({ base_url: 'http://public.test/v1', models_path: modelsPath });
+      expect(res.status).toBe(400);
+    }
+    for (const baseUrl of ['http://public.test/v1?tenant=a', 'http://public.test/v1#fragment']) {
+      const res = await request(app)
+        .post('/api/providers/test')
+        .set(adminAuth())
+        .send({ base_url: baseUrl, models_path: 'models' });
+      expect(res.status).toBe(400);
+    }
+    expect(getSpy).not.toHaveBeenCalled();
+    getSpy.mockRestore();
+  });
+
+  it('omits empty API keys but rejects control characters', async () => {
+    const getSpy = vi.spyOn(axios, 'get').mockResolvedValue({ status: 200, data: { data: [] } } as any);
+    for (const apiKey of ['', '   ']) {
+      const res = await request(app)
+        .post('/api/providers/test')
+        .set(auth())
+        .send({ base_url: 'http://public.test/v1', api_key: apiKey });
+      expect(res.status).toBe(200);
+    }
+    expect(getSpy).toHaveBeenCalledTimes(2);
+    for (const [, config] of getSpy.mock.calls) {
+      expect((config as any).headers).not.toHaveProperty('Authorization');
+    }
+
+    const invalid = await request(app)
+      .post('/api/providers/test')
+      .set(auth())
+      .send({ base_url: 'http://public.test/v1', api_key: 'sk-test\r\nX-Injected: yes' });
+    expect(invalid.status).toBe(400);
+    expect(getSpy).toHaveBeenCalledTimes(2);
+    getSpy.mockRestore();
+  });
+
   it('rate limits connection tests per user', async () => {
-    const headSpy = vi.spyOn(axios, 'head').mockResolvedValue({ status: 204 } as any);
+    const getSpy = vi.spyOn(axios, 'get').mockResolvedValue({ status: 200, data: { data: [{ id: 'model-a' }] } } as any);
     for (let i = 0; i < 10; i++) {
       const res = await request(app)
         .post('/api/providers/test')
@@ -247,8 +437,8 @@ describe('POST /api/providers/test', () => {
       .send({ base_url: 'http://public.test/v1' });
 
     expect(limited.status).toBe(429);
-    expect(headSpy).toHaveBeenCalledTimes(10);
-    headSpy.mockRestore();
+    expect(getSpy).toHaveBeenCalledTimes(10);
+    getSpy.mockRestore();
   });
 });
 
@@ -261,6 +451,7 @@ describe('GET /api/providers', () => {
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
     expect(res.body.some((p: any) => p.immutable)).toBe(true);
+    expect(res.body.find((p: any) => p.name === 'my-provider')?.models_path).toBe('custom/models');
   });
 
   it('includes rate_limits and queue_max_size from model_pricing', async () => {
@@ -296,10 +487,11 @@ describe('PUT /api/providers/:id', () => {
     const res = await request(app)
       .put(`/api/providers/${providerId}`)
       .set(auth())
-      .send({ name: 'updated-name' });
+      .send({ name: 'updated-name', models_path: '/openai/v1/models' });
 
     expect(res.status).toBe(200);
     expect(res.body.name).toBe('updated-name');
+    expect(res.body.models_path).toBe('/openai/v1/models');
   });
 
   it('lets a group member update other fields when an approved private URL is unchanged', async () => {
