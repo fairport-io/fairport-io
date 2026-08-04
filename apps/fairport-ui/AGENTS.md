@@ -256,6 +256,7 @@ Hardened `/api/chat/stream` upstream SSE handling:
 - Request IDs generated with `crypto.randomUUID()` and passed through to frontend
 - General middleware logs every request (duration, status, etc.)
 - Chat endpoints (`/api/chat/stream`, `/v1/chat/completions`) get 2 logs: a start log (request_id, provider_id, source, pricing) and an end log (tokens, costs, timing)
+- SSE chat logs add `requested_model` for the normalized client selection (or null when omitted) and `model` for the resolved value routed upstream and used for limits, queueing, and usage
 - Extra fields attached to middleware log via `res.locals.log` for endpoints that use `res.json()` (like `/v1/chat/completions`)
 - SSE endpoint (`/api/chat/stream`) logs explicitly since middleware doesn't fire for SSE
 

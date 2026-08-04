@@ -155,9 +155,10 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | **API** | `POST /v1/chat/completions` (non-streaming, Bearer auth) |
 | **API** | `POST /api/chat/stream` (SSE streaming, session auth) |
 | **API** | Unrecognized top-level chat parameters pass through to providers; Fairport selection fields are stripped |
+| **API** | The UI-selected model is validated against the selected provider and routed unchanged upstream |
 | **Logging** | JSON request logging to stdout |
 | **Logging** | Request IDs via `crypto.randomUUID()` |
-| **Logging** | Chat endpoints get start + end log entries |
+| **Logging** | UI streaming chat logs include `requested_model` and the resolved upstream `model` in start + end entries |
 | **UI** | User / assistant avatar differentiation |
 | **UI** | ErrorBoundary with reload button |
 | **UI** | Dynamic page title (`"{appName} - {tab}"`) |

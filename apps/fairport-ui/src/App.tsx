@@ -732,7 +732,8 @@ export default function App() {
       const provider = providers.find(p => p.id === activeProviderId);
       if (provider) {
         setProviderUrl(provider.base_url);
-        setModelName(provider.models.split(',')[0].trim());
+        const models = provider.models.split(',').map(model => model.trim()).filter(Boolean);
+        setModelName(current => models.includes(current) ? current : (models[0] || ''));
       }
     }
   }, [activeProviderId, providers]);
@@ -913,7 +914,8 @@ export default function App() {
         body: JSON.stringify({ 
           ...extraParameters,
           messages: [...messages, userMessage].map(m => ({ role: m.role, content: m.content })),
-          provider_id: activeProviderId
+          provider_id: activeProviderId,
+          model: modelName
         })
       });
 

@@ -2020,18 +2020,19 @@ app.post('/api/chat/stream', async (req, res) => {
   if (!user) return res.status(401).json({ detail: "Auth required" });
   if (!apiKey) return res.status(400).json({ detail: "An API key is required to use the chat" });
 
-  const { messages, provider_id } = req.body;
+  const { messages, provider_id, model: requestedModelValue } = req.body;
   
   // Find the provider to use
   let provider = db.providers.find((p: any) => p.immutable === true);
   if (provider_id) {
     const requestedProvider = db.providers.find((p: any) => p.id === provider_id);
-    if (requestedProvider) {
-      if (requestedProvider.visibility === 'public' || requestedProvider.owner_id === user.id || (requestedProvider.group_id && isGroupMember(user, db, requestedProvider.group_id))) {
-        provider = requestedProvider;
-      } else {
-        return res.status(403).json({ detail: "Forbidden: No access to this provider" });
-      }
+    if (!requestedProvider) {
+      return res.status(400).json({ detail: "Provider not found" });
+    }
+    if (requestedProvider.visibility === 'public' || requestedProvider.owner_id === user.id || (requestedProvider.group_id && isGroupMember(user, db, requestedProvider.group_id))) {
+      provider = requestedProvider;
+    } else {
+      return res.status(403).json({ detail: "Forbidden: No access to this provider" });
     }
   }
   
@@ -2044,8 +2045,32 @@ app.post('/api/chat/stream', async (req, res) => {
     return res.status(403).json({ detail: "Forbidden: No permission to use this provider" });
   }
 
+  const providerModels = provider.models.split(',').map((model: string) => model.trim()).filter(Boolean);
+  if (requestedModelValue !== undefined && typeof requestedModelValue !== 'string') {
+    return res.status(400).json({ detail: "Model must be a string" });
+  }
+  const requestedModel = typeof requestedModelValue === 'string' ? requestedModelValue.trim() : null;
+  if (requestedModelValue !== undefined && !requestedModel) {
+    return res.status(400).json({ detail: "Model cannot be empty" });
+  }
+  const modelId = requestedModel || providerModels[0];
+  if (!modelId || !providerModels.includes(modelId)) {
+    return res.status(400).json({ detail: `Model ${modelId || '(none)'} is not configured for provider ${provider.name}` });
+  }
+  if (!hasPermission(user, db, "use", "models", modelId)) {
+    return res.status(403).json({ detail: "Forbidden: No permission to use this model" });
+  }
+
+  const requestId = crypto.randomUUID();
+  res.locals.log = {
+    request_id: requestId,
+    provider_id: provider.id,
+    requested_model: requestedModel,
+    model: modelId,
+    source: 'UI'
+  };
+
   // Rate limit check per user per model
-  const modelId = provider.models.split(',')[0].trim();
   const modelLimits = getModelRateLimits(db, modelId);
   const rateLimitResult = rateLimiter.check(user.id, modelId, modelLimits);
   if (!rateLimitResult.allowed) {
@@ -2054,7 +2079,6 @@ app.post('/api/chat/stream', async (req, res) => {
 
   const { messages: providerMessages } = req.body;
   const startTime = Date.now();
-  const requestId = crypto.randomUUID();
   let inputTokens = 0;
   let outputTokens = 0;
   let firstTokenTime = 0; // ms offset from request start to first token arrival
@@ -2076,6 +2100,8 @@ app.post('/api/chat/stream', async (req, res) => {
     refer: req.get('Referer') || '-',
     request_id: requestId,
     provider_id: provider.id,
+    requested_model: requestedModel,
+    model: modelId,
     source: 'UI',
     input_price_per_1m: APP_CONFIG.default_provider_model_in_price_1m,
     output_price_per_1m: APP_CONFIG.default_provider_model_out_price_1m,
@@ -2096,6 +2122,8 @@ app.post('/api/chat/stream', async (req, res) => {
       provider_id: provider.id,
       provider_name: provider.name,
       model_id: modelId,
+      requested_model: requestedModel,
+      model: modelId,
       owner_id: provider.owner_id || null,
       api_key_prefix: apiKey?.key_prefix || 'N/A'
     }));
@@ -2156,6 +2184,9 @@ app.post('/api/chat/stream', async (req, res) => {
       ttft_ms: firstTokenTime,
       response_time_ms: duration,
       request_id: requestId,
+      provider_id: provider.id,
+      requested_model: requestedModel,
+      model: modelId,
       source: 'UI',
       input_price_per_1m: APP_CONFIG.default_provider_model_in_price_1m,
       output_price_per_1m: APP_CONFIG.default_provider_model_out_price_1m,
@@ -2189,7 +2220,6 @@ app.post('/api/chat/stream', async (req, res) => {
       }
       outputTokens = Math.ceil((assistantContent + thinkingContent).length / 4);
       // Record usage event
-      const modelId = provider.models.split(',')[0].trim();
       db.usage_events.push({
         id: `usage-event-id-${crypto.randomUUID()}`,
         api_key_id: apiKey.id,
@@ -2232,6 +2262,11 @@ app.post('/api/chat/stream', async (req, res) => {
       api_key: req.headers['x-api-key-id'] || '-',
       refer: req.get('Referer') || '-',
       duration_ms: duration,
+      request_id: requestId,
+      provider_id: provider.id,
+      requested_model: requestedModel,
+      model: modelId,
+      source: 'UI',
       error: err.message
     }));
     if (!res.writableEnded) {
@@ -2278,7 +2313,7 @@ app.post('/api/chat/stream', async (req, res) => {
     );
     const response = await axios.post(`${provider.base_url}/chat/completions`, buildProviderChatBody(
       req.body,
-      provider.models.split(',')[0].trim(),
+      modelId,
       messages,
       true
     ), {

@@ -61,6 +61,49 @@ test('chat: clear chat with confirmation', async () => {
   await expect(sharedPage.getByText('Welcome to')).toBeVisible();
 });
 
+test('chat: sends the selected non-default provider model', async () => {
+  await sharedPage.route('**/api/config', async route => {
+    const response = await route.fetch();
+    const config = await response.json();
+    await route.fulfill({
+      status: response.status(),
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...config,
+        providers: config.providers.map((provider: any, index: number) => index === 0
+          ? { ...provider, models: 'llama-guard3-8b,llama3-8b' }
+          : provider),
+      }),
+    });
+  });
+  await sharedPage.reload();
+  await sharedPage.waitForURL(/\/chat$/, { timeout: 10000 });
+
+  const modelSelect = sharedPage.locator('select:has(option[value="llama3-8b"])');
+  await expect(modelSelect).toHaveCount(1);
+  await modelSelect.selectOption('llama3-8b');
+
+  let forwardedBody: any;
+  await sharedPage.route('**/api/chat/stream', async route => {
+    forwardedBody = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: 'data: {"type":"done"}\n\n',
+    });
+  });
+
+  await sharedPage.locator('textarea').fill('Use the selected model');
+  await sharedPage.getByRole('button', { name: 'Send' }).click();
+  await expect.poll(() => forwardedBody).toBeTruthy();
+  expect(forwardedBody.model).toBe('llama3-8b');
+
+  await sharedPage.unroute('**/api/chat/stream');
+  await sharedPage.unroute('**/api/config');
+  await sharedPage.reload();
+  await sharedPage.waitForURL(/\/chat$/, { timeout: 10000 });
+});
+
 test('chat: extra parameters validate, persist, forward, and clear responsively', async () => {
   const trigger = sharedPage.getByRole('button', { name: /Extra Parameters/ });
   await trigger.click();
@@ -100,7 +143,7 @@ test('chat: extra parameters validate, persist, forward, and clear responsively'
   await expect.poll(() => forwardedBody).toBeTruthy();
   expect(forwardedBody.max_tokens).toBe(256);
   expect(forwardedBody.response_format).toEqual({ type: 'json_object' });
-  expect(forwardedBody.model).toBeUndefined();
+  expect(forwardedBody.model).toBe('default');
   expect(forwardedBody.messages).toEqual(expect.arrayContaining([
     expect.objectContaining({ role: 'user', content: 'Use my parameters' }),
   ]));

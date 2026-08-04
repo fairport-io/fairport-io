@@ -75,6 +75,7 @@ Definitions
 | ✅    | pw    | /chat    | -    | send message and show typing indicator — app.spec.ts |
 | ✅    | pw    | /chat    | -    | clear chat with confirmation — app.spec.ts |
 | ✅    | pw    | /chat    | POST | Extra Parameters validate typed JSON, persist across refresh, forward with chat requests, clear with history, and fit a mobile viewport — app.spec.ts |
+| ✅    | pw    | /chat    | POST | selecting a provider's non-default model sends that exact model in the streaming request — app.spec.ts |
 | ✅    | pw    | /chat    | -    | sidebar tabs navigate and update URL — app.spec.ts |
 | ✅    | pw    | /chat    | -    | active tab persists across refresh — app.spec.ts |
 | -     |       | /chat    | -    | chat history stored per-user in localStorage |
@@ -86,6 +87,9 @@ Definitions
 | -     |       | /api/chat/stream  | POST   | requires valid auth + API key |
 | ✅    | vi    | /api/chat/stream  | POST   | forwards to provider and streams split SSE response chunks — chat-stream.test.ts |
 | ✅    | vi    | /api/chat/stream  | POST   | passes through nested parameters, strips provider selectors, and controls model/messages/stream — chat-stream.test.ts |
+| ✅    | vi    | /api/chat/stream  | POST   | selected provider model is routed upstream, logged as requested/resolved on accepted and rate-limited requests, and recorded in usage — chat-stream.test.ts |
+| ✅    | vi    | /api/chat/stream  | POST   | model not configured for the selected provider is rejected before upstream routing — chat-stream.test.ts |
+| ✅    | vi    | /api/chat/stream  | POST   | unknown provider ID is rejected instead of falling back to another provider — chat-stream.test.ts |
 | -     |       | /api/chat/stream  | POST   | thinking/reasoning content streamed separately |
 | -     |       | /api/chat/stream  | POST   | TTFT tracked on first token |
 | -     |       | /api/chat/stream  | POST   | input token limit enforced (400) |
