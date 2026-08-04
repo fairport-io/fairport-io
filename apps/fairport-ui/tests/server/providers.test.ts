@@ -443,18 +443,62 @@ describe('POST /api/providers/test', () => {
 });
 
 describe('GET /api/providers', () => {
-  it('returns public and user-owned providers', async () => {
+  it('keeps the legacy array response and includes model counts', async () => {
     const res = await request(app)
       .get('/api/providers')
       .set(auth());
 
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body).not.toHaveProperty('data');
     expect(res.body.some((p: any) => p.immutable)).toBe(true);
-    expect(res.body.find((p: any) => p.name === 'my-provider')?.models_path).toBe('custom/models');
+    expect(res.body.find((p: any) => p.name === 'my-provider')).toEqual(expect.objectContaining({
+      models_path: 'custom/models',
+      models: 'llama3,mistral',
+      model_count: 2,
+    }));
   });
 
-  it('includes rate_limits and queue_max_size from model_pricing', async () => {
+  it('paginates only when an explicit cursor request is supplied', async () => {
+    const first = await request(app)
+      .get('/api/providers')
+      .query({ limit: 1 })
+      .set(auth());
+
+    expect(first.status).toBe(200);
+    expect(first.body).toEqual(expect.objectContaining({
+      object: 'list',
+      has_more: true,
+      next_cursor: expect.any(String),
+    }));
+    expect(first.body.data).toHaveLength(1);
+
+    const second = await request(app)
+      .get('/api/providers')
+      .query({ limit: 1, after: first.body.next_cursor })
+      .set(auth());
+
+    expect(second.status).toBe(200);
+    expect(second.body.object).toBe('list');
+    expect(second.body.data).toHaveLength(1);
+    expect(second.body.data[0].id).not.toBe(first.body.data[0].id);
+    expect(
+      `${second.body.data[0].name}\0${second.body.data[0].id}` >
+      `${first.body.data[0].name}\0${first.body.data[0].id}`
+    ).toBe(true);
+  });
+
+  it('rejects group filters for nonmembers', async () => {
+    const res = await request(app)
+      .get('/api/providers')
+      .query({ group_id: 'global_admin' })
+      .set(auth());
+
+    expect(res.status).toBe(403);
+    expect(res.body.detail).toBe('Not a member of this group');
+  });
+
+  it('includes rate_limits and queue_max_size from the first offering', async () => {
     const res = await request(app)
       .get('/api/providers')
       .set(auth());

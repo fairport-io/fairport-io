@@ -154,6 +154,22 @@ interface Provider {
   immutable: boolean;
   rate_limits?: string;
   queue_max_size?: number;
+  model_count?: number;
+}
+
+interface ModelOffering {
+  id: string;
+  model_id: string;
+  provider_id: string;
+  provider_name: string;
+  visibility: 'private' | 'public';
+  source: 'manual' | 'discovered';
+  enabled: boolean;
+  created_at: number;
+  last_seen_at: number | null;
+  rate_limits: string;
+  queue_max_size: number;
+  can_update_visibility: boolean;
 }
 
 interface ProviderDiscoveryResult {
@@ -169,7 +185,7 @@ interface ExtraParameterDraft {
   value: string;
 }
 
-type Tab = 'chat' | 'api' | 'providers' | 'groups' | 'usage' | 'settings' | 'deployments';
+type Tab = 'chat' | 'api' | 'providers' | 'models' | 'groups' | 'usage' | 'settings' | 'deployments';
 type Theme = 'light' | 'dark' | 'system';
 
 // --- Constants ---
@@ -221,6 +237,8 @@ const TAB_LABELS: Record<Tab, string> = {
   chat: 'Chat',
   api: 'API',
   providers: 'Providers',
+  models: 'Models',
+  groups: 'Groups',
   usage: 'Usage',
   settings: 'Settings',
   deployments: 'Deployments',
@@ -229,6 +247,8 @@ const TAB_PATHS: Record<Tab, string> = {
   chat: BASE_PATH ? appPath('/') : '/chat',
   api: appPath('/api'),
   providers: appPath('/providers'),
+  models: appPath('/models'),
+  groups: appPath('/groups'),
   usage: appPath('/usage'),
   settings: appPath('/settings'),
   deployments: appPath('/deployments'),
@@ -247,7 +267,7 @@ export default function App() {
     const pathTab = TAB_FROM_PATH[window.location.pathname];
     if (pathTab) return pathTab;
     const stored = localStorage.getItem(STORAGE_KEYS.ACTIVE_TAB);
-    const validTabs: Tab[] = ['chat', 'api', 'providers', 'usage', 'settings', 'deployments'];
+    const validTabs: Tab[] = ['chat', 'api', 'providers', 'models', 'usage', 'settings', 'deployments'];
     if (stored && validTabs.includes(stored as Tab)) return stored as Tab;
     return 'chat';
   });
@@ -257,6 +277,8 @@ export default function App() {
   });
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [chatOfferings, setChatOfferings] = useState<ModelOffering[]>([]);
+  const [modelProviderFilter, setModelProviderFilter] = useState('');
   const [usageEvents, setUsageEvents] = useState<UsageEvent[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -284,6 +306,9 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [authForm, setAuthForm] = useState({ username: '', password: '' });
   const [authError, setAuthError] = useState('');
+  const keyLoadRequestRef = useRef(0);
+  const providerLoadRequestRef = useRef(0);
+  const chatOfferingRequestRef = useRef(0);
 
   const authHeaders = (): Record<string, string> => {
     const t = token || localStorage.getItem('jwt_token');
@@ -364,6 +389,7 @@ export default function App() {
 
   // --- Session & Initial Data ---
   useEffect(() => {
+    const configProviderVersion = providerLoadRequestRef.current;
     // C1: Handle OAuth redirect — server now sends a short-lived one-time code
     // (?oauth_code=) instead of the JWT directly in the URL. We exchange it via
     // POST /api/auth/oauth/exchange so the token never appears in browser history
@@ -411,12 +437,12 @@ export default function App() {
           setSignupsEnabled(data.signups_enabled);
         }
         // Load providers from config
-        if (data.providers && Array.isArray(data.providers)) {
+        if (data.providers && Array.isArray(data.providers) && providerLoadRequestRef.current === configProviderVersion) {
           setProviders(data.providers);
           // Set active provider to first one if not set
           if (data.providers.length > 0 && !activeProviderId) {
             setActiveProviderId(data.providers[0].id);
-            setProviderUrl(data.providers[0].base_url);
+            setProviderUrl(data.providers[0].base_url || '');
             setModelName(data.providers[0].models.split(',')[0].trim());
           }
         }
@@ -446,11 +472,13 @@ export default function App() {
   };
 
   const loadKeys = async (groupId?: string) => {
+    const requestId = ++keyLoadRequestRef.current;
     try {
       const url = groupId ? `/api/keys?group_id=${groupId}` : '/api/keys';
       const res = await appFetch(url, { headers: { 'Cache-Control': 'no-cache', ...authHeaders() } });
       if (res.ok) {
         const data = await res.json();
+        if (requestId !== keyLoadRequestRef.current || !Array.isArray(data)) return;
         const mappedKeys = data.map((k: any) => ({
           id: k.id,
           name: k.name,
@@ -461,10 +489,8 @@ export default function App() {
         setApiKeys(mappedKeys);
         
         setActiveKeyId(prevId => {
-          if (mappedKeys.length > 0 && (!prevId || !mappedKeys.find((k: any) => k.id === prevId))) {
-            return mappedKeys[0].id;
-          }
-          return prevId;
+          if (mappedKeys.length === 0) return '';
+          return prevId && mappedKeys.some((key: ApiKey) => key.id === prevId) ? prevId : mappedKeys[0].id;
         });
       } else {
         console.error('Failed to load keys:', res.status);
@@ -702,11 +728,13 @@ export default function App() {
   };
 
   const loadProviders = async (groupId?: string) => {
+    const requestId = ++providerLoadRequestRef.current;
     try {
-      const url = groupId ? `/api/providers?group_id=${groupId}` : '/api/providers';
+      const url = groupId ? `/api/providers?group_id=${encodeURIComponent(groupId)}` : '/api/providers';
       const res = await appFetch(url, { headers: { 'Cache-Control': 'no-cache', ...authHeaders() } });
       if (res.ok) {
         const data = await res.json();
+        if (requestId !== providerLoadRequestRef.current || !Array.isArray(data)) return;
         setProviders(data);
         
         // Set active provider to first one if not set
@@ -721,6 +749,61 @@ export default function App() {
     }
   };
 
+  const loadChatOfferings = async () => {
+    const requestId = ++chatOfferingRequestRef.current;
+    if (!isLoggedIn || !token || !activeKeyId) {
+      setChatOfferings([]);
+      return;
+    }
+    setChatOfferings([]);
+    try {
+      const rows: ModelOffering[] = [];
+      const seenCursors = new Set<string>();
+      let after: string | null = null;
+      do {
+        const params = new URLSearchParams({ usable: 'true', limit: '100' });
+        if (after) params.set('after', after);
+        const res = await appFetch(`/api/models?${params.toString()}`, {
+          headers: {
+            'Cache-Control': 'no-cache',
+            ...authHeaders(),
+            'x-api-key-id': activeKeyId,
+          },
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.detail || 'Unable to load usable models');
+        if (requestId !== chatOfferingRequestRef.current) return;
+        rows.push(...(Array.isArray(body.data) ? body.data : []));
+        after = body.has_more === true && typeof body.next_cursor === 'string' ? body.next_cursor : null;
+        if (after) {
+          if (seenCursors.has(after)) throw new Error('Model pagination returned a repeated cursor');
+          seenCursors.add(after);
+        }
+      } while (after);
+
+      if (requestId !== chatOfferingRequestRef.current) return;
+      setChatOfferings(rows);
+      const providerIds = new Set(rows.map(offering => offering.provider_id));
+      const defaultProviderId = providers.find(provider => provider.immutable && providerIds.has(provider.id))?.id;
+      setActiveProviderId(current => current && providerIds.has(current)
+        ? current
+        : (defaultProviderId || rows[0]?.provider_id || ''));
+    } catch (e) {
+      if (requestId === chatOfferingRequestRef.current) console.error('Failed to load usable models:', e);
+    }
+  };
+
+  useEffect(() => {
+    if (!isLoggedIn || !activeIdentity) return;
+    const groupId = activeIdentity.type === 'group' ? activeIdentity.id : undefined;
+    loadKeys(groupId);
+    loadProviders(groupId);
+  }, [isLoggedIn, activeIdentity?.type, activeIdentity?.id]);
+
+  useEffect(() => {
+    loadChatOfferings();
+  }, [isLoggedIn, token, activeKeyId]);
+
   const loadConfig = async () => {
     try {
       await appFetch('/api/config');
@@ -732,11 +815,30 @@ export default function App() {
       const provider = providers.find(p => p.id === activeProviderId);
       if (provider) {
         setProviderUrl(provider.base_url);
-        const models = provider.models.split(',').map(model => model.trim()).filter(Boolean);
-        setModelName(current => models.includes(current) ? current : (models[0] || ''));
       }
     }
   }, [activeProviderId, providers]);
+
+  const chatProviderOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    if (activeKeyId) {
+      chatOfferings.forEach(offering => options.set(offering.provider_id, offering.provider_name));
+    } else {
+      providers.forEach(provider => options.set(provider.id, provider.name));
+    }
+    return [...options.entries()].map(([id, name]) => ({ id, name }));
+  }, [activeKeyId, chatOfferings, providers]);
+
+  const activeChatModels = useMemo(() => {
+    const models = activeKeyId
+      ? chatOfferings.filter(offering => offering.provider_id === activeProviderId).map(offering => offering.model_id)
+      : (providers.find(provider => provider.id === activeProviderId)?.models || '').split(',').map(model => model.trim()).filter(Boolean);
+    return [...new Set(models)];
+  }, [activeKeyId, activeProviderId, chatOfferings, providers]);
+
+  useEffect(() => {
+    setModelName(current => activeChatModels.includes(current) ? current : (activeChatModels[0] || ''));
+  }, [activeChatModels]);
 
   useEffect(() => {
     try {
@@ -749,6 +851,8 @@ export default function App() {
   useEffect(() => {
     if (activeKeyId) {
       localStorage.setItem(STORAGE_KEYS.ACTIVE_KEY_ID, activeKeyId);
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.ACTIVE_KEY_ID);
     }
   }, [activeKeyId]);
 
@@ -784,17 +888,7 @@ export default function App() {
         setActiveIdentity({ type: 'user', id: data.user?.id || '', name: data.user?.name || authForm.username });
         setActiveTab('chat');
         await loadKeys();
-        // Load config and providers
-        const configRes = await appFetch('/api/config');
-        const configData = await configRes.json();
-        if (configData.providers && Array.isArray(configData.providers)) {
-          setProviders(configData.providers);
-          if (configData.providers.length > 0) {
-            setActiveProviderId(configData.providers[0].id);
-            setProviderUrl(configData.providers[0].base_url);
-            setModelName(configData.providers[0].models.split(',')[0].trim());
-          }
-        }
+        await loadProviders();
         const userName = data.user?.name || authForm.username;
         loadMessages(userName);
         loadUsage();
@@ -914,7 +1008,7 @@ export default function App() {
         body: JSON.stringify({ 
           ...extraParameters,
           messages: [...messages, userMessage].map(m => ({ role: m.role, content: m.content })),
-          provider_id: activeProviderId,
+          ...(activeProviderId ? { provider_id: activeProviderId } : {}),
           model: modelName
         })
       });
@@ -1028,10 +1122,10 @@ export default function App() {
   };
 
   // --- Provider Handlers ---
-  const addProvider = async (name: string, baseUrl: string, models: string, modelsPath: string, rateLimits?: string, apiKey?: string, queueMaxSize?: number): Promise<string | null> => {
+  const addProvider = async (name: string, baseUrl: string, models: string, modelsPath: string, modelsSource: 'manual' | 'discovered', rateLimits?: string, apiKey?: string, queueMaxSize?: number): Promise<string | null> => {
     try {
       const groupId = activeIdentity?.type === 'group' ? activeIdentity.id : undefined;
-      const body: any = { name, base_url: baseUrl, models, models_path: modelsPath, rate_limits: rateLimits, api_key: apiKey || undefined, queue_max_size: queueMaxSize };
+      const body: any = { name, base_url: baseUrl, models, models_path: modelsPath, models_source: modelsSource, rate_limits: rateLimits, api_key: apiKey || undefined, queue_max_size: queueMaxSize };
       if (groupId) body.group_id = groupId;
       const res = await appFetch('/api/providers', {
         method: 'POST',
@@ -1041,6 +1135,7 @@ export default function App() {
       const data = await res.json();
       if (res.ok) {
         await loadProviders(groupId);
+        await loadChatOfferings();
         return null;
       }
       return data.detail || 'Failed to create provider';
@@ -1070,7 +1165,7 @@ export default function App() {
     }
   };
 
-  const updateProvider = async (id: string, updates: { name?: string; base_url?: string; models?: string; models_path?: string; api_key?: string; rate_limits?: string; queue_max_size?: number }): Promise<string | null> => {
+  const updateProvider = async (id: string, updates: { name?: string; base_url?: string; models?: string; models_path?: string; models_source?: 'manual' | 'discovered'; api_key?: string; rate_limits?: string; queue_max_size?: number }): Promise<string | null> => {
     try {
       const res = await appFetch(`/api/providers/${id}`, {
         method: 'PUT',
@@ -1079,7 +1174,9 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok) {
-        await loadProviders();
+        const groupId = activeIdentity?.type === 'group' ? activeIdentity.id : undefined;
+        await loadProviders(groupId);
+        await loadChatOfferings();
         return null;
       }
       return data.detail || 'Failed to update provider';
@@ -1091,7 +1188,9 @@ export default function App() {
 
   const removeProvider = async (id: string) => {
     await appFetch(`/api/providers/${id}`, { method: 'DELETE', headers: { ...authHeaders() } });
-    loadProviders();
+    const groupId = activeIdentity?.type === 'group' ? activeIdentity.id : undefined;
+    await loadProviders(groupId);
+    await loadChatOfferings();
   };
 
   const deleteAccount = async () => {
@@ -1273,6 +1372,12 @@ export default function App() {
             label="Providers"
           />
           <SidebarButton
+            active={activeTab === 'models'}
+            onClick={() => { setModelProviderFilter(''); setActiveTab('models'); setSidebarOpen(false); }}
+            icon={<Bot className="w-4 h-4" />}
+            label="Models"
+          />
+          <SidebarButton
             active={activeTab === 'usage'}
             onClick={() => { setActiveTab('usage'); setSidebarOpen(false); }}
             icon={<DollarSign className="w-4 h-4" />}
@@ -1324,6 +1429,7 @@ export default function App() {
                   onChange={(e) => {
                     const [type, ...idParts] = e.target.value.split(':');
                     const id = idParts.join(':');
+                    setModelProviderFilter('');
                     if (type === 'group') {
                       const group = groups.find(g => g.id === id);
                       if (group) { setActiveKeyId(''); setActiveProviderId(''); setModelName(''); setActiveIdentity({ type: 'group', id: group.id, name: group.name }); }
@@ -1355,35 +1461,34 @@ export default function App() {
 
             <span className="hidden md:inline text-[11px] font-bold text-slate-600 dark:text-zinc-400">Provider:</span>
             <select
+              aria-label="Provider"
               value={activeProviderId}
               onChange={(e) => {
                 setActiveProviderId(e.target.value);
                 // Reset model selection when provider changes
-                const provider = providers.find(p => p.id === e.target.value);
-                if (provider) {
-                  const models = provider.models.split(',').map(m => m.trim());
-                  if (models.length > 0) {
-                    setModelName(models[0]);
-                  }
-                }
+                const models = activeKeyId
+                  ? chatOfferings.filter(offering => offering.provider_id === e.target.value).map(offering => offering.model_id)
+                  : (providers.find(provider => provider.id === e.target.value)?.models || '').split(',').map(model => model.trim()).filter(Boolean);
+                setModelName(models[0] || '');
               }}
               className="text-[11px] font-bold bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-full md:px-3 px-2 py-1.5 text-slate-600 dark:text-zinc-400 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer max-w-[100px] md:max-w-none"
             >
               {!activeProviderId && <option value="">Select a provider</option>}
-              {providers.map(p => (
+              {chatProviderOptions.map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
 
             <span className="hidden md:inline text-[11px] font-bold text-slate-600 dark:text-zinc-400">Model:</span>
             <select
+              aria-label="Model"
               value={modelName}
               onChange={(e) => setModelName(e.target.value)}
               className="text-[11px] font-bold bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-full md:px-3 px-2 py-1.5 text-slate-600 dark:text-zinc-400 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer max-w-[100px] md:max-w-none"
             >
-              {providers.find(p => p.id === activeProviderId)?.models.split(',').map(m => (
-                <option key={m.trim()} value={m.trim()}>{m.trim()}</option>
-              )) || <option value="">Select provider first</option>}
+              {activeChatModels.length > 0
+                ? activeChatModels.map(model => <option key={model} value={model}>{model}</option>)
+                : <option value="">Select provider first</option>}
             </select>
 
             <span className="hidden xl:inline text-[11px] font-bold text-slate-500 dark:text-zinc-500 mr-1">Chat Storage:</span>
@@ -1461,7 +1566,30 @@ export default function App() {
                       onAdd={addProvider} 
                       onTest={testProvider}
                       onUpdate={updateProvider}
-                      onRemove={removeProvider} 
+                      onRemove={removeProvider}
+                      onViewModels={(providerId) => {
+                        setModelProviderFilter(providerId);
+                        setActiveTab('models');
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'models' && (
+              <div className="max-w-6xl mx-auto py-12 px-6 w-full">
+                <div className="bg-white dark:bg-zinc-900 rounded-3xl border border-slate-200 dark:border-zinc-800 overflow-hidden shadow-xl shadow-slate-200/50 dark:shadow-none">
+                  <div className="p-8 border-b border-slate-100 dark:border-zinc-800">
+                    <h2 className="text-xl font-bold mb-1 tracking-tight">Models</h2>
+                    <p className="text-sm text-slate-500 dark:text-zinc-400">Manage model availability and shared access by provider</p>
+                  </div>
+                  <div className="p-6 sm:p-8">
+                    <ModelManager
+                      providers={providers}
+                      initialProviderId={modelProviderFilter}
+                      groupId={activeIdentity?.type === 'group' ? activeIdentity.id : undefined}
+                      authToken={token}
                     />
                   </div>
                 </div>
@@ -1476,7 +1604,7 @@ export default function App() {
                   </div>
                   
                   <div className="p-8 space-y-8">
-                    <KeyManager apiKeys={apiKeys} onAdd={addApiKey} onRemove={removeApiKey} modelName={modelName} providerName={providers.find(p => p.id === activeProviderId)?.name || activeProviderId || 'default'} />
+                    <KeyManager apiKeys={apiKeys} onAdd={addApiKey} onRemove={removeApiKey} modelName={modelName} providerName={chatProviderOptions.find(provider => provider.id === activeProviderId)?.name || activeProviderId || 'default'} />
                   </div>
                 </div>
               </div>
@@ -3301,6 +3429,306 @@ function ToggleButton({ active, onToggle }: { active: boolean; onToggle: () => v
   );
 }
 
+function ModelManager({ providers, initialProviderId, groupId, authToken }: {
+  providers: Provider[];
+  initialProviderId: string;
+  groupId?: string;
+  authToken: string | null;
+}) {
+  const [rows, setRows] = useState<ModelOffering[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [searchDraft, setSearchDraft] = useState('');
+  const [search, setSearch] = useState('');
+  const [providerId, setProviderId] = useState(initialProviderId);
+  const [visibility, setVisibility] = useState('');
+  const [after, setAfter] = useState<string | null>(null);
+  const [cursorHistory, setCursorHistory] = useState<(string | null)[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [updatingId, setUpdatingId] = useState('');
+  const [pendingPublicOffering, setPendingPublicOffering] = useState<ModelOffering | null>(null);
+  const publishDialogRef = useRef<HTMLDivElement>(null);
+  const publishTriggerRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    setProviderId(initialProviderId);
+    setAfter(null);
+    setCursorHistory([]);
+  }, [groupId, initialProviderId]);
+
+  useEffect(() => {
+    if (!pendingPublicOffering || !publishDialogRef.current) return;
+    const dialog = publishDialogRef.current;
+    const trigger = publishTriggerRef.current;
+    const focusable = [...dialog.querySelectorAll<HTMLButtonElement>('button:not([disabled])')];
+    focusable[0]?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setPendingPublicOffering(null);
+        return;
+      }
+      if (event.key !== 'Tab' || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    dialog.addEventListener('keydown', handleKeyDown);
+    return () => {
+      dialog.removeEventListener('keydown', handleKeyDown);
+      if (trigger?.isConnected) trigger.focus();
+    };
+  }, [pendingPublicOffering]);
+
+  useEffect(() => {
+    if (!authToken) return;
+    const controller = new AbortController();
+    const params = new URLSearchParams({ limit: '25' });
+    if (after) params.set('after', after);
+    if (providerId) params.set('provider_id', providerId);
+    if (visibility) params.set('visibility', visibility);
+    if (search) params.set('q', search);
+    if (groupId) params.set('group_id', groupId);
+    setLoading(true);
+    setError('');
+    appFetch(`/api/models?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+      signal: controller.signal,
+    })
+      .then(async response => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.detail || 'Unable to load models');
+        return body;
+      })
+      .then(body => {
+        setRows(Array.isArray(body.data) ? body.data : []);
+        setHasMore(body.has_more === true);
+        setNextCursor(typeof body.next_cursor === 'string' ? body.next_cursor : null);
+      })
+      .catch(fetchError => {
+        if (fetchError.name !== 'AbortError') setError(fetchError.message || 'Unable to load models');
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [after, authToken, groupId, providerId, search, visibility]);
+
+  const resetPagination = () => {
+    setAfter(null);
+    setCursorHistory([]);
+  };
+
+  const updateVisibility = async (offering: ModelOffering, nextVisibility: 'private' | 'public') => {
+    if (!authToken || updatingId) return;
+    setUpdatingId(offering.id);
+    setError('');
+    try {
+      const response = await appFetch(`/api/models/${encodeURIComponent(offering.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ visibility: nextVisibility }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail || 'Unable to update model visibility');
+      setRows(current => visibility && body.visibility !== visibility
+        ? current.filter(row => row.id !== offering.id)
+        : current.map(row => row.id === offering.id ? { ...row, ...body } : row));
+    } catch (updateError: any) {
+      setError(updateError.message || 'Unable to update model visibility');
+    } finally {
+      setUpdatingId('');
+    }
+  };
+
+  const providerOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    providers.forEach(provider => options.set(provider.id, provider.name));
+    rows.forEach(row => options.set(row.provider_id, row.provider_name));
+    if (providerId && !options.has(providerId)) options.set(providerId, 'Selected provider');
+    return [...options.entries()].sort((left, right) => left[1].localeCompare(right[1]));
+  }, [providerId, providers, rows]);
+
+  return (
+    <div className="space-y-5">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          setSearch(searchDraft.trim());
+          resetPagination();
+        }}
+        className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(12rem,0.45fr)_minmax(10rem,0.35fr)_auto]"
+      >
+        <label className="relative min-w-0">
+          <span className="sr-only">Search models</span>
+          <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            value={searchDraft}
+            onChange={event => setSearchDraft(event.target.value)}
+            placeholder="Search models or providers"
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-11 pr-4 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:border-zinc-800 dark:bg-zinc-800/50"
+          />
+        </label>
+        <label>
+          <span className="sr-only">Filter by provider</span>
+          <select
+            aria-label="Filter by provider"
+            value={providerId}
+            onChange={event => { setProviderId(event.target.value); resetPagination(); }}
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:border-zinc-800 dark:bg-zinc-800/50"
+          >
+            <option value="">All providers</option>
+            {providerOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+        </label>
+        <label>
+          <span className="sr-only">Filter by visibility</span>
+          <select
+            aria-label="Filter by visibility"
+            value={visibility}
+            onChange={event => { setVisibility(event.target.value); resetPagination(); }}
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:border-zinc-800 dark:bg-zinc-800/50"
+          >
+            <option value="">All visibility</option>
+            <option value="private">Private</option>
+            <option value="public">Public</option>
+          </select>
+        </label>
+        <button type="submit" className="rounded-2xl bg-indigo-600 px-5 py-3 text-sm font-bold text-white hover:bg-indigo-500">Search</button>
+      </form>
+
+      {error && <p role="alert" className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-600 dark:bg-red-950/30 dark:text-red-400">{error}</p>}
+
+      <div role="table" aria-label="Models" data-testid="models-list" className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 dark:border-zinc-800">
+        <div role="row" className="hidden grid-cols-6 gap-4 border-b border-slate-200 bg-slate-50 px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:border-zinc-800 dark:bg-zinc-800/40 lg:grid">
+          <div role="columnheader">Model</div>
+          <div role="columnheader">Provider</div>
+          <div role="columnheader">Source</div>
+          <div role="columnheader">Availability</div>
+          <div role="columnheader">Visibility</div>
+          <div role="columnheader" className="text-right">Access</div>
+        </div>
+        {loading ? (
+          <div className="p-10 text-center text-sm text-slate-500">Loading models…</div>
+        ) : rows.length === 0 ? (
+          <div className="p-10 text-center text-sm text-slate-500">No models match these filters.</div>
+        ) : rows.map(offering => (
+          <div key={offering.id} role="row" className="grid min-w-0 grid-cols-2 gap-4 border-b border-slate-100 px-4 py-4 last:border-b-0 dark:border-zinc-800 lg:grid-cols-6 lg:items-center">
+            <div role="cell" className="col-span-2 min-w-0 lg:col-span-1">
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400 lg:hidden">Model</span>
+              <span className="block break-all font-mono text-sm font-semibold text-slate-800 dark:text-zinc-100">{offering.model_id}</span>
+            </div>
+            <div role="cell" className="col-span-2 min-w-0 lg:col-span-1">
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400 lg:hidden">Provider</span>
+              <span className="block break-all text-sm text-slate-600 dark:text-zinc-300">{offering.provider_name}</span>
+            </div>
+            <div role="cell" className="min-w-0">
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400 lg:hidden">Source</span>
+              <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-[11px] font-bold capitalize text-slate-600 dark:bg-zinc-800 dark:text-zinc-300">{offering.source}</span>
+            </div>
+            <div role="cell" className="min-w-0">
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400 lg:hidden">Availability</span>
+              <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${offering.enabled ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                <span className={`h-2 w-2 rounded-full ${offering.enabled ? 'bg-green-500' : 'bg-amber-500'}`} />
+                {offering.enabled ? 'Available' : 'Unavailable'}
+              </span>
+            </div>
+            <div role="cell" className="min-w-0">
+              <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-slate-400 lg:hidden">Visibility</span>
+              <span className="text-sm font-semibold capitalize text-slate-700 dark:text-zinc-200">{offering.visibility}</span>
+            </div>
+            <div role="cell" className="flex min-w-0 items-center justify-end">
+              {offering.can_update_visibility ? (
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={offering.visibility === 'public'}
+                  aria-label={`Make ${offering.model_id} ${offering.visibility === 'public' ? 'private' : 'public'}`}
+                  disabled={updatingId === offering.id}
+                  onClick={(event) => {
+                    if (offering.visibility === 'public') {
+                      updateVisibility(offering, 'private');
+                    } else {
+                      publishTriggerRef.current = event.currentTarget;
+                      setPendingPublicOffering(offering);
+                    }
+                  }}
+                  className={`relative h-7 w-12 rounded-full transition-colors disabled:opacity-50 ${offering.visibility === 'public' ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-zinc-700'}`}
+                >
+                  <span className={`absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow transition-transform ${offering.visibility === 'public' ? 'translate-x-5' : 'translate-x-0'}`} />
+                </button>
+              ) : (
+                <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:bg-zinc-800 dark:text-zinc-400">Managed</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-between text-sm">
+        <button
+          type="button"
+          disabled={cursorHistory.length === 0 || loading}
+          onClick={() => {
+            const previous = cursorHistory[cursorHistory.length - 1] ?? null;
+            setCursorHistory(history => history.slice(0, -1));
+            setAfter(previous);
+          }}
+          className="rounded-xl border border-slate-200 px-4 py-2 font-bold text-slate-600 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300"
+        >
+          Previous
+        </button>
+        <span className="text-xs font-semibold text-slate-500">Page {cursorHistory.length + 1}</span>
+        <button
+          type="button"
+          disabled={!hasMore || !nextCursor || loading}
+          onClick={() => {
+            if (!nextCursor) return;
+            setCursorHistory(history => [...history, after]);
+            setAfter(nextCursor);
+          }}
+          className="rounded-xl border border-slate-200 px-4 py-2 font-bold text-slate-600 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300"
+        >
+          Next
+        </button>
+      </div>
+
+      {pendingPublicOffering && (
+        <div ref={publishDialogRef} role="dialog" aria-modal="true" aria-labelledby="public-model-title" className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900">
+            <h3 id="public-model-title" className="text-lg font-bold">Make this model public?</h3>
+            <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-zinc-300">
+              Every authenticated user will be able to route requests through <strong>{pendingPublicOffering.provider_name}</strong>. This can consume shared capacity and incur provider costs.
+            </p>
+            <p className="mt-3 break-all rounded-xl bg-slate-50 p-3 font-mono text-xs text-slate-700 dark:bg-zinc-800 dark:text-zinc-200">{pendingPublicOffering.model_id}</p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button type="button" onClick={() => setPendingPublicOffering(null)} className="rounded-xl px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800">Cancel</button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const offering = pendingPublicOffering;
+                  setPendingPublicOffering(null);
+                  await updateVisibility(offering, 'public');
+                }}
+                className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-bold text-white hover:bg-indigo-500"
+              >
+                Make Public
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function resolveModelsEndpointPreview(baseUrl: string, modelsPath: string): string {
   if (!baseUrl.trim()) return '';
   try {
@@ -3328,13 +3756,16 @@ function resolveModelsEndpointPreview(baseUrl: string, modelsPath: string): stri
   }
 }
 
-function ProviderManager({ providers, onAdd, onTest, onUpdate, onRemove }: {
+function ProviderManager({ providers, onAdd, onTest, onUpdate, onRemove, onViewModels }: {
   providers: Provider[];
-  onAdd: (name: string, baseUrl: string, models: string, modelsPath: string, rateLimits?: string, apiKey?: string, queueMaxSize?: number) => Promise<string | null>;
+  onAdd: (name: string, baseUrl: string, models: string, modelsPath: string, modelsSource: 'manual' | 'discovered', rateLimits?: string, apiKey?: string, queueMaxSize?: number) => Promise<string | null>;
   onTest: (baseUrl: string, modelsPath: string, apiKey?: string) => Promise<ProviderDiscoveryResult>;
-  onUpdate: (id: string, updates: { name?: string; base_url?: string; models?: string; models_path?: string; api_key?: string; rate_limits?: string; queue_max_size?: number }) => Promise<string | null>;
+  onUpdate: (id: string, updates: { name?: string; base_url?: string; models?: string; models_path?: string; models_source?: 'manual' | 'discovered'; api_key?: string; rate_limits?: string; queue_max_size?: number }) => Promise<string | null>;
   onRemove: (id: string) => void;
+  onViewModels: (providerId: string) => void;
 }) {
+  const PROVIDERS_PER_PAGE = 10;
+  const [providerPage, setProviderPage] = useState(0);
   const [newName, setNewName] = useState('');
   const [newUrl, setNewUrl] = useState('');
   const [newModels, setNewModels] = useState('');
@@ -3358,6 +3789,10 @@ function ProviderManager({ providers, onAdd, onTest, onUpdate, onRemove }: {
   const [editApiKey, setEditApiKey] = useState('');
   const [editRateLimits, setEditRateLimits] = useState('');
   const [editQueueMaxSize, setEditQueueMaxSize] = useState(5);
+
+  useEffect(() => {
+    setProviderPage(current => Math.min(current, Math.max(0, Math.ceil(providers.length / PROVIDERS_PER_PAGE) - 1)));
+  }, [providers.length]);
 
   const invalidateDiscovery = () => {
     discoveryVersion.current += 1;
@@ -3387,6 +3822,7 @@ function ProviderManager({ providers, onAdd, onTest, onUpdate, onRemove }: {
     setCreating(true);
     setError(null);
     let models = newModels.trim();
+    let modelsSource: 'manual' | 'discovered' = autoDiscoveredModelsRef.current === models ? 'discovered' : 'manual';
     if (!models) {
       const discovery = await discoverModels();
       if (!discovery) {
@@ -3397,6 +3833,7 @@ function ProviderManager({ providers, onAdd, onTest, onUpdate, onRemove }: {
       const manuallyEnteredModels = newModelsRef.current.trim();
       if (manuallyEnteredModels) {
         models = manuallyEnteredModels;
+        modelsSource = 'manual';
       } else if (!discovery.ok) {
         setError(`Model discovery failed: ${discovery.message} Enter models manually to continue.`);
         setCreating(false);
@@ -3410,9 +3847,10 @@ function ProviderManager({ providers, onAdd, onTest, onUpdate, onRemove }: {
         autoDiscoveredModelsRef.current = models;
         newModelsRef.current = models;
         setNewModels(models);
+        modelsSource = 'discovered';
       }
     }
-    const err = await onAdd(newName.trim(), newUrl.trim(), models, newModelsPath.trim() || 'models', newRateLimits.trim() || undefined, newApiKey.trim() || undefined, newQueueMaxSize);
+    const err = await onAdd(newName.trim(), newUrl.trim(), models, newModelsPath.trim() || 'models', modelsSource, newRateLimits.trim() || undefined, newApiKey.trim() || undefined, newQueueMaxSize);
     if (err) {
       setError(err);
     } else {
@@ -3477,6 +3915,7 @@ function ProviderManager({ providers, onAdd, onTest, onUpdate, onRemove }: {
       base_url: editUrl.trim(),
       models: editModels.trim(),
       models_path: editModelsPath.trim() || 'models',
+      models_source: 'manual',
       api_key: editApiKey.trim(),
       rate_limits: editRateLimits.trim() || undefined,
       queue_max_size: editQueueMaxSize
@@ -3497,6 +3936,8 @@ function ProviderManager({ providers, onAdd, onTest, onUpdate, onRemove }: {
     : null;
   const discoveredModels = currentTestResult?.models.join(',') || '';
   const modelsEndpointPreview = resolveModelsEndpointPreview(newUrl, normalizedModelsPath);
+  const providerPageCount = Math.max(1, Math.ceil(providers.length / PROVIDERS_PER_PAGE));
+  const visibleProviders = providers.slice(providerPage * PROVIDERS_PER_PAGE, (providerPage + 1) * PROVIDERS_PER_PAGE);
 
   return (
     <div className="space-y-6">
@@ -3664,8 +4105,9 @@ function ProviderManager({ providers, onAdd, onTest, onUpdate, onRemove }: {
             No providers configured.
           </div>
         ) : (
+          <>
           <div data-testid="configured-providers" className="divide-y divide-slate-200 dark:divide-zinc-800 rounded-2xl border border-slate-200 dark:border-zinc-800 overflow-hidden">
-            {providers.map(provider => (
+            {visibleProviders.map(provider => (
               <article key={provider.id} className="min-w-0 p-4 sm:p-5 hover:bg-slate-50 dark:hover:bg-zinc-800/30 transition-colors">
                 {editingId === provider.id ? (
                   <div className="space-y-4">
@@ -3811,10 +4253,15 @@ function ProviderManager({ providers, onAdd, onTest, onUpdate, onRemove }: {
                       </div>
                       <div className="min-w-0 sm:col-span-2">
                         <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">Models</dt>
-                        <dd className="mt-1 flex min-w-0 flex-wrap gap-1">
-                          {provider.models.split(',').filter(model => model.trim()).map((model, i) => (
-                            <span key={i} className="max-w-full break-all whitespace-normal rounded-full bg-slate-100 dark:bg-zinc-800 px-2 py-0.5 font-mono text-[11px] text-slate-600 dark:text-zinc-400">{model.trim()}</span>
-                          ))}
+                        <dd className="mt-1">
+                          <button
+                            type="button"
+                            onClick={() => onViewModels(provider.id)}
+                            className="inline-flex items-center gap-1 rounded-full bg-indigo-50 dark:bg-indigo-950/30 px-3 py-1 text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-950/50 transition-colors"
+                          >
+                            {provider.model_count ?? provider.models.split(',').filter(model => model.trim()).length}{' '}
+                            {(provider.model_count ?? provider.models.split(',').filter(model => model.trim()).length) === 1 ? 'model' : 'models'} <span aria-hidden="true">→</span>
+                          </button>
                         </dd>
                       </div>
                       <div className="min-w-0 sm:col-span-2">
@@ -3835,6 +4282,28 @@ function ProviderManager({ providers, onAdd, onTest, onUpdate, onRemove }: {
               </article>
             ))}
           </div>
+          {providerPageCount > 1 && (
+            <div className="flex items-center justify-between pt-2 text-sm">
+              <button
+                type="button"
+                onClick={() => setProviderPage(page => Math.max(0, page - 1))}
+                disabled={providerPage === 0}
+                className="rounded-xl border border-slate-200 dark:border-zinc-700 px-3 py-2 font-bold text-slate-600 dark:text-zinc-300 disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <span className="text-xs font-semibold text-slate-500 dark:text-zinc-400">Page {providerPage + 1} of {providerPageCount}</span>
+              <button
+                type="button"
+                onClick={() => setProviderPage(page => Math.min(providerPageCount - 1, page + 1))}
+                disabled={providerPage >= providerPageCount - 1}
+                className="rounded-xl border border-slate-200 dark:border-zinc-700 px-3 py-2 font-bold text-slate-600 dark:text-zinc-300 disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
+          )}
+          </>
         )}
       </div>
     </div>
