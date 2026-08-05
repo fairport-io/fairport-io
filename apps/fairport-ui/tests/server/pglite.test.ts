@@ -58,14 +58,50 @@ describe('PGliteAdapter', () => {
       ],
       messages: [],
       providers: [
-        { id: 'prov-id-1', name: 'openai', base_url: 'https://api.openai.com/v1', models: 'gpt-4', api_key: 'sk-xxx', owner_id: 'user-id-1', group_id: null, visibility: 'public', immutable: false },
+        {
+          id: 'prov-id-1',
+          name: 'openai',
+          base_url: 'https://api.openai.com/v1',
+          models: 'gpt-4',
+          api_key: 'sk-xxx',
+          owner_id: 'user-id-1',
+          group_id: null,
+          visibility: 'public',
+          immutable: false,
+          offerings: [{
+            id: 'offering-id-1',
+            model_id: 'gpt-4',
+            visibility: 'public',
+            source: 'manual',
+            enabled: true,
+            created_at: 900,
+            last_seen_at: 950,
+            input_cost_per_1m_tokens: 10,
+            output_cost_per_1m_tokens: 30,
+            rate_limits: '10:request:minute',
+            queue_max_size: 5,
+          }],
+        },
         { id: 'prov-id-2', name: 'custom', base_url: 'https://api.example.com/v1', models: 'custom', models_path: 'custom/models', api_key: '', owner_id: 'user-id-1', group_id: null, visibility: 'private', immutable: false },
       ],
       model_pricing: [
         { model_id: 'gpt-4', input_cost_per_1m_tokens: 10, output_cost_per_1m_tokens: 30, rate_limits: '10:request:minute', queue_max_size: 5 },
       ],
       usage_events: [
-        { id: 'usage-id-1', api_key_id: 'key-id-1', model_id: 'gpt-4', provider_id: 'prov-id-1', user_id: 'user-id-1', group_id: null, timestamp: 1000, input_tokens: 10, output_tokens: 20, source: 'UI' },
+        {
+          id: 'usage-id-1',
+          api_key_id: 'key-id-1',
+          model_id: 'gpt-4',
+          provider_id: 'prov-id-1',
+          user_id: 'user-id-1',
+          group_id: null,
+          timestamp: 1000,
+          input_tokens: 10,
+          output_tokens: 20,
+          source: 'UI',
+          input_price_per_1m_tokens: 10,
+          output_price_per_1m_tokens: 30,
+        },
       ],
     };
 
@@ -97,13 +133,27 @@ describe('PGliteAdapter', () => {
     expect(loaded.providers).toHaveLength(2);
     expect(loaded.providers[0].immutable).toBe(false);
     expect(loaded.providers[0].models_path).toBe('models');
+    expect(loaded.providers[0].offerings).toEqual([expect.objectContaining({
+      id: 'offering-id-1',
+      model_id: 'gpt-4',
+      visibility: 'public',
+      source: 'manual',
+      enabled: true,
+      input_cost_per_1m_tokens: 10,
+      output_cost_per_1m_tokens: 30,
+      rate_limits: '10:request:minute',
+      queue_max_size: 5,
+    })]);
     expect(loaded.providers[1].models_path).toBe('custom/models');
+    expect(loaded.providers[1].offerings).toEqual([]);
 
     expect(loaded.model_pricing).toHaveLength(1);
     expect(loaded.model_pricing[0].input_cost_per_1m_tokens).toBe(10);
 
     expect(loaded.usage_events).toHaveLength(1);
     expect(loaded.usage_events[0].source).toBe('UI');
+    expect(loaded.usage_events[0].input_price_per_1m_tokens).toBe(10);
+    expect(loaded.usage_events[0].output_price_per_1m_tokens).toBe(30);
   });
 
   it('overwrites data on subsequent saves', async () => {
@@ -149,5 +199,27 @@ describe('PGliteAdapter', () => {
 
     expect(loaded.providers[0].immutable).toBe(true);
     expect(loaded.providers[1].immutable).toBe(false);
+  });
+
+  it('rolls back the full snapshot when a replacement row cannot be inserted', async () => {
+    const before = await adapter.load();
+    const invalid = {
+      ...before,
+      users: [{ id: 'user-invalid', name: 'invalid@example.com', password_hash: 'hash', unknown_column: true }],
+    } as any;
+
+    await expect(adapter.save(invalid)).rejects.toThrow();
+    const after = await adapter.load();
+
+    expect(after).toEqual(before);
+  });
+
+  it('rejects malformed offering JSON instead of rebuilding from the legacy model string', async () => {
+    await (adapter as any).client.query(
+      'UPDATE providers SET offerings = $1 WHERE id = $2',
+      ['{"not":"an-array"}', 'prov-normal']
+    );
+
+    await expect(adapter.load()).rejects.toThrow('Invalid providers.offerings JSON for prov-normal');
   });
 });

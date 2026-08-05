@@ -14,7 +14,7 @@ import helmet from 'helmet';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 import { createDatabase } from './src/db/index';
-import type { DatabaseAdapter, DbData } from './src/db/index';
+import type { DatabaseAdapter, DbData, ProviderOffering } from './src/db/index';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -292,6 +292,123 @@ function parseDiscoveredModelIds(data: unknown): string[] {
   return models;
 }
 
+function parseProviderModelIds(rawModels: unknown): string[] {
+  if (typeof rawModels !== 'string') throw new Error('Models must be a comma-separated string');
+  const values = rawModels.split(',');
+  if (values.length > PROVIDER_MODELS_MAX_COUNT) throw new Error(`Models cannot contain more than ${PROVIDER_MODELS_MAX_COUNT} entries`);
+  const models: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const modelId = value.trim();
+    if (!modelId) continue;
+    if (modelId.length > PROVIDER_MODEL_ID_MAX_LENGTH || /[,\u0000-\u001f\u007f]/.test(modelId)) {
+      throw new Error('Models contains an invalid model id');
+    }
+    if (!seen.has(modelId)) {
+      seen.add(modelId);
+      models.push(modelId);
+    }
+  }
+  if (models.length === 0) throw new Error('At least one model is required');
+  return models;
+}
+
+function providerOfferingId(providerId: string, modelId: string): string {
+  const digest = crypto.createHash('sha256').update(`${providerId}\0${modelId}`).digest('hex').slice(0, 32);
+  return `model-offering-${digest}`;
+}
+
+function getProviderOfferings(provider: any, includeDisabled = false): ProviderOffering[] {
+  const offerings = Array.isArray(provider.offerings) ? provider.offerings : [];
+  const filtered = offerings.filter((offering: any) =>
+    offering && typeof offering.model_id === 'string' && (includeDisabled || offering.enabled !== false)
+  );
+  const configuredOrder = typeof provider.models === 'string'
+    ? provider.models.split(',').map((model: string) => model.trim()).filter(Boolean)
+    : [];
+  return filtered.sort((left: any, right: any) => {
+    const leftIndex = configuredOrder.indexOf(left.model_id);
+    const rightIndex = configuredOrder.indexOf(right.model_id);
+    const normalizedLeft = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
+    const normalizedRight = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
+    return normalizedLeft - normalizedRight || left.model_id.localeCompare(right.model_id) || left.id.localeCompare(right.id);
+  });
+}
+
+function getProviderModelNames(provider: any): string[] {
+  const offerings = getProviderOfferings(provider);
+  if (offerings.length > 0) return offerings.map(offering => offering.model_id);
+  if (typeof provider.models !== 'string') return [];
+  try { return parseProviderModelIds(provider.models); } catch { return []; }
+}
+
+function findProviderOffering(provider: any, modelId: string, includeDisabled = false): ProviderOffering | undefined {
+  return getProviderOfferings(provider, includeDisabled).find(offering => offering.model_id === modelId);
+}
+
+function syncProviderOfferings(
+  db: any,
+  provider: any,
+  modelIds: string[],
+  options: { source?: 'manual' | 'discovered'; rate_limits?: string; queue_max_size?: number } = {}
+): ProviderOffering[] {
+  const now = Math.floor(Date.now() / 1000);
+  const desired = new Set(modelIds);
+  const deduplicated = new Map<string, ProviderOffering>();
+  const existingOfferings = Array.isArray(provider.offerings) ? provider.offerings : [];
+
+  for (const rawOffering of existingOfferings) {
+    if (!rawOffering || typeof rawOffering.model_id !== 'string' || deduplicated.has(rawOffering.model_id)) continue;
+    const legacyPricing = db.model_pricing.find((pricing: any) => pricing.model_id === rawOffering.model_id);
+    deduplicated.set(rawOffering.model_id, {
+      id: typeof rawOffering.id === 'string' && rawOffering.id ? rawOffering.id : providerOfferingId(provider.id, rawOffering.model_id),
+      model_id: rawOffering.model_id,
+      visibility: provider.immutable ? 'public' : (rawOffering.visibility === 'public' ? 'public' : 'private'),
+      source: rawOffering.source === 'discovered' ? 'discovered' : 'manual',
+      enabled: rawOffering.enabled !== false,
+      created_at: Number.isInteger(rawOffering.created_at) ? rawOffering.created_at : now,
+      last_seen_at: Number.isInteger(rawOffering.last_seen_at) ? rawOffering.last_seen_at : null,
+      input_cost_per_1m_tokens: Number.isFinite(rawOffering.input_cost_per_1m_tokens) ? rawOffering.input_cost_per_1m_tokens : (legacyPricing?.input_cost_per_1m_tokens ?? 0),
+      output_cost_per_1m_tokens: Number.isFinite(rawOffering.output_cost_per_1m_tokens) ? rawOffering.output_cost_per_1m_tokens : (legacyPricing?.output_cost_per_1m_tokens ?? 0),
+      rate_limits: typeof rawOffering.rate_limits === 'string' && rawOffering.rate_limits ? rawOffering.rate_limits : (legacyPricing?.rate_limits || APP_CONFIG.default_provider_model_rate_limits),
+      queue_max_size: Number.isInteger(rawOffering.queue_max_size) && rawOffering.queue_max_size > 0 ? rawOffering.queue_max_size : (legacyPricing?.queue_max_size ?? APP_CONFIG.default_provider_model_queue_max_size),
+    });
+  }
+
+  for (const modelId of modelIds) {
+    const legacyPricing = db.model_pricing.find((pricing: any) => pricing.model_id === modelId);
+    let offering = deduplicated.get(modelId);
+    if (!offering) {
+      offering = {
+        id: providerOfferingId(provider.id, modelId),
+        model_id: modelId,
+        visibility: provider.immutable ? 'public' : 'private',
+        source: options.source || 'manual',
+        enabled: true,
+        created_at: now,
+        last_seen_at: options.source === 'discovered' ? now : null,
+        input_cost_per_1m_tokens: legacyPricing?.input_cost_per_1m_tokens ?? 0,
+        output_cost_per_1m_tokens: legacyPricing?.output_cost_per_1m_tokens ?? 0,
+        rate_limits: legacyPricing?.rate_limits || APP_CONFIG.default_provider_model_rate_limits,
+        queue_max_size: legacyPricing?.queue_max_size ?? APP_CONFIG.default_provider_model_queue_max_size,
+      };
+      deduplicated.set(modelId, offering);
+    }
+    offering.enabled = true;
+    if (options.source === 'discovered') offering.last_seen_at = now;
+    if (provider.immutable) offering.visibility = 'public';
+    if (options.rate_limits !== undefined) offering.rate_limits = options.rate_limits;
+    if (options.queue_max_size !== undefined) offering.queue_max_size = options.queue_max_size;
+  }
+
+  for (const offering of deduplicated.values()) {
+    if (!desired.has(offering.model_id)) offering.enabled = false;
+  }
+  provider.offerings = [...deduplicated.values()];
+  provider.models = modelIds.join(',');
+  return getProviderOfferings(provider);
+}
+
 async function resolveProviderHostname(hostname: string, timeoutMs: number): Promise<ResolvedAddress[]> {
   let timeout: NodeJS.Timeout | undefined;
   try {
@@ -479,6 +596,7 @@ async function ensureDefaults(db: any) {
   }
 
   for (const provider of db.providers) {
+    if (typeof provider.name === 'string' && provider.name.trim()) provider.name = provider.name.trim();
     if (!provider.models_path) provider.models_path = 'models';
   }
 
@@ -514,6 +632,21 @@ async function ensureDefaults(db: any) {
       immutableProvider.api_key = 'enc:' + encryptProviderKey(immutableProvider.api_key, 'immutable');
       await saveDb(db);
     }
+  }
+
+  for (const provider of db.providers) {
+    let modelIds: string[];
+    if (Array.isArray(provider.offerings) && provider.offerings.length > 0) {
+      modelIds = getProviderOfferings(provider).map(offering => offering.model_id);
+    } else {
+      try {
+        modelIds = parseProviderModelIds(provider.models || '');
+      } catch {
+        modelIds = [];
+      }
+    }
+    if (modelIds.length === 0 && provider.immutable) modelIds = [APP_CONFIG.default_provider_model];
+    syncProviderOfferings(db, provider, modelIds);
   }
 }
 
@@ -707,8 +840,12 @@ class RequestQueue {
 
 const requestQueue = new RequestQueue();
 
-function getModelQueueMaxSize(db: any, modelId: string): number {
-  const pricing = db.model_pricing.find((mp: any) => mp.model_id === modelId);
+function getModelSettings(db: any, provider: any, modelId: string): any {
+  return findProviderOffering(provider, modelId) || db.model_pricing.find((mp: any) => mp.model_id === modelId);
+}
+
+function getModelQueueMaxSize(db: any, provider: any, modelId: string): number {
+  const pricing = getModelSettings(db, provider, modelId);
   return pricing?.queue_max_size ?? APP_CONFIG.default_provider_model_queue_max_size;
 }
 
@@ -731,14 +868,14 @@ function parseRateLimits(str: string): { limit: number; windowMs: number }[] {
   });
 }
 
-function getModelRateLimits(db: any, modelId: string): { limit: number; windowMs: number }[] {
-  const pricing = db.model_pricing.find((mp: any) => mp.model_id === modelId);
+function getModelRateLimits(db: any, provider: any, modelId: string): { limit: number; windowMs: number }[] {
+  const pricing = getModelSettings(db, provider, modelId);
   const rateLimitStr = pricing?.rate_limits || APP_CONFIG.default_provider_model_rate_limits;
   return parseRateLimits(rateLimitStr);
 }
 
-function getRateLimitLabel(db: any, modelId: string): string {
-  const pricing = db.model_pricing.find((mp: any) => mp.model_id === modelId);
+function getRateLimitLabel(db: any, provider: any, modelId: string): string {
+  const pricing = getModelSettings(db, provider, modelId);
   const raw = pricing?.rate_limits || APP_CONFIG.default_provider_model_rate_limits;
   return raw.split(',').map((e: string) => {
     const parts = e.trim().split(':');
@@ -901,6 +1038,8 @@ async function getAuthContext(req: Request) {
   
   let user = null;
   let apiKey = null;
+  let authState: 'none' | 'jwt' | 'api_key' | 'invalid' = authHeader === undefined ? 'none' : 'invalid';
+  const now = Math.floor(Date.now() / 1000);
 
   // 1. JWT Bearer Auth (for UI)
   if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -914,14 +1053,19 @@ async function getAuthContext(req: Request) {
         if (user) {
           const keyId = req.headers['x-api-key-id'];
           if (keyId) {
-            const keyFound = db.api_keys.find((entry: any) => entry.id === keyId && (entry.owner_id === user.id || (entry.group_id && isGroupMember(user, db, entry.group_id))));
+            const keyFound = db.api_keys.find((entry: any) =>
+              entry.id === keyId &&
+              (entry.expires_at == null || entry.expires_at > now) &&
+              (entry.owner_id === user.id || (entry.group_id && isGroupMember(user, db, entry.group_id)))
+            );
             if (keyFound) {
               apiKey = keyFound;
-              apiKey.last_used_at = Math.floor(Date.now() / 1000);
+              apiKey.last_used_at = now;
               await saveDb(db);
             }
           }
-          return { user, db, apiKey };
+          authState = 'jwt';
+          return { user, db, apiKey, authState };
         }
       }
     }
@@ -930,20 +1074,23 @@ async function getAuthContext(req: Request) {
     if (rawToken.startsWith('sk-')) {
       const prefix = rawToken.slice(0, 11);
       const keyFound = db.api_keys.find((entry: any) => 
-        entry.key_prefix === prefix && bcrypt.compareSync(rawToken, entry.key_hash)
+        entry.key_prefix === prefix &&
+        (entry.expires_at == null || entry.expires_at > now) &&
+        bcrypt.compareSync(rawToken, entry.key_hash)
       );
       if (keyFound) {
         user = db.users.find((u: any) => u.id === keyFound.owner_id);
         if (user) {
           apiKey = keyFound;
-          apiKey.last_used_at = Math.floor(Date.now() / 1000);
+          apiKey.last_used_at = now;
+          authState = 'api_key';
           await saveDb(db);
         }
       }
     }
   }
   
-  return { user, db, apiKey };
+  return { user, db, apiKey, authState };
 }
 
 function hasPermission(user: any, db: any, verb: string, resource: string, resourceName: string): boolean {
@@ -974,6 +1121,37 @@ function hasPermission(user: any, db: any, verb: string, resource: string, resou
   }
 
   return false;
+}
+
+function hasApiKeyPermission(user: any, apiKey: any, db: any, verb: string, resource: string, resourceName: string): boolean {
+  if (!apiKey?.group_id) return hasPermission(user, db, verb, resource, resourceName);
+  return hasPermission(user, {
+    ...db,
+    groups: db.groups.filter((group: any) => group.id === 'default' || group.id === apiKey.group_id)
+  }, verb, resource, resourceName);
+}
+
+function canAccessProviderForApiKey(user: any, apiKey: any, db: any, provider: any): boolean {
+  if (apiKey?.group_id) return provider.group_id === apiKey.group_id;
+  return provider.owner_id === user.id || (provider.group_id && isGroupMember(user, db, provider.group_id));
+}
+
+function canUseOfferingForApiKey(user: any, apiKey: any, db: any, provider: any, offering: ProviderOffering): boolean {
+  if (!offering || offering.enabled === false) return false;
+  if (offering.visibility !== 'public' && !canAccessProviderForApiKey(user, apiKey, db, provider)) return false;
+  return hasApiKeyPermission(user, apiKey, db, 'use', 'providers', provider.name) &&
+    hasApiKeyPermission(user, apiKey, db, 'use', 'models', offering.model_id);
+}
+
+function getUsableProviderOfferings(user: any, apiKey: any, db: any, provider: any): ProviderOffering[] {
+  return getProviderOfferings(provider).filter(offering => canUseOfferingForApiKey(user, apiKey, db, provider, offering));
+}
+
+function compareProviders(left: any, right: any): number {
+  if (!!left.immutable !== !!right.immutable) return left.immutable ? -1 : 1;
+  const leftKey = `${left.name}\u0000${left.id}`;
+  const rightKey = `${right.name}\u0000${right.id}`;
+  return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
 }
 
 // --- AUTH LOGIC ---
@@ -1391,32 +1569,220 @@ app.delete('/api/keys/:id', async (req, res) => {
   res.json({ status: "success" });
 });
 
+function queryString(value: unknown, name: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') throw new Error(`${name} must be supplied once`);
+  return value;
+}
+
+function parsePageLimit(value: unknown, fallback = 50): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) throw new Error('limit must be an integer between 1 and 100');
+  const limit = Number(value);
+  if (limit < 1 || limit > 100) throw new Error('limit must be an integer between 1 and 100');
+  return limit;
+}
+
+function encodeCursor(parts: string[]): string {
+  return Buffer.from(JSON.stringify(parts), 'utf8').toString('base64url');
+}
+
+function decodeCursor(value: unknown, size: number): string[] | null {
+  if (value === undefined) return null;
+  if (typeof value !== 'string' || !value || value.length > 2048) throw new Error('Invalid pagination cursor');
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+    if (!Array.isArray(parsed) || parsed.length !== size || parsed.some(part => typeof part !== 'string')) {
+      throw new Error('Invalid pagination cursor');
+    }
+    return parsed;
+  } catch {
+    throw new Error('Invalid pagination cursor');
+  }
+}
+
+function serializeProvider(user: any, db: any, provider: any) {
+  const offerings = getProviderOfferings(provider).filter(offering =>
+    offering.visibility === 'public' || canManageProvider(user, db, provider)
+  );
+  const firstOffering = offerings[0];
+  return {
+    id: provider.id,
+    name: provider.name,
+    base_url: provider.base_url,
+    models: offerings.map(offering => offering.model_id).join(','),
+    models_path: provider.models_path || 'models',
+    visibility: provider.visibility,
+    immutable: provider.immutable,
+    model_count: offerings.length,
+    rate_limits: firstOffering?.rate_limits || APP_CONFIG.default_provider_model_rate_limits,
+    queue_max_size: firstOffering?.queue_max_size ?? APP_CONFIG.default_provider_model_queue_max_size
+  };
+}
+
 app.get('/api/providers', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
-  
-  const groupId = req.query.group_id as string;
+
+  let groupId: string | undefined;
+  try {
+    groupId = queryString(req.query.group_id, 'group_id');
+  } catch (error: any) {
+    return res.status(400).json({ detail: error.message });
+  }
+  if (groupId && !isGroupMember(user, db, groupId) && !isGlobalAdmin(user, db)) {
+    return res.status(403).json({ detail: 'Not a member of this group' });
+  }
   const providers = db.providers.filter((p: any) =>
     groupId
       ? p.group_id === groupId
       : (p.visibility === 'public' || (p.owner_id === user.id && !p.group_id))
-  );
-  
-  res.json(providers.map((p: any) => {
-    const firstModel = p.models.split(',')[0].trim();
-    const pricing = db.model_pricing.find((mp: any) => mp.model_id === firstModel);
-    return {
-      id: p.id,
-      name: p.name,
-      base_url: p.base_url,
-      models: p.models,
-      models_path: p.models_path || 'models',
-      visibility: p.visibility,
-      immutable: p.immutable,
-      rate_limits: pricing?.rate_limits || APP_CONFIG.default_provider_model_rate_limits,
-      queue_max_size: pricing?.queue_max_size ?? APP_CONFIG.default_provider_model_queue_max_size
-    };
-  }));
+  ).sort((left: any, right: any) => left.name < right.name ? -1 : left.name > right.name ? 1 : left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+  const rows = providers.map((provider: any) => serializeProvider(user, db, provider));
+  const paginationRequested = req.query.limit !== undefined || req.query.after !== undefined;
+  if (!paginationRequested) return res.json(rows);
+
+  try {
+    const limit = parsePageLimit(req.query.limit);
+    const cursor = decodeCursor(req.query.after, 2);
+    const remaining = cursor
+      ? rows.filter((row: any) => row.name > cursor[0] || (row.name === cursor[0] && row.id > cursor[1]))
+      : rows;
+    const page = remaining.slice(0, limit);
+    const hasMore = remaining.length > limit;
+    return res.json({
+      object: 'list',
+      data: page,
+      has_more: hasMore,
+      next_cursor: hasMore && page.length > 0 ? encodeCursor([page[page.length - 1].name, page[page.length - 1].id]) : null,
+    });
+  } catch (error: any) {
+    return res.status(400).json({ detail: error.message });
+  }
+});
+
+function canManageProvider(user: any, db: any, provider: any): boolean {
+  return isGlobalAdmin(user, db) || provider.owner_id === user.id || !!(provider.group_id && isGroupMember(user, db, provider.group_id));
+}
+
+function serializeModelOffering(user: any, db: any, provider: any, offering: ProviderOffering) {
+  return {
+    id: offering.id,
+    model_id: offering.model_id,
+    provider_id: provider.id,
+    provider_name: provider.name,
+    source: offering.source,
+    visibility: offering.visibility,
+    enabled: offering.enabled,
+    created_at: offering.created_at,
+    last_seen_at: offering.last_seen_at,
+    rate_limits: offering.rate_limits,
+    queue_max_size: offering.queue_max_size,
+    can_update_visibility: !provider.immutable && canManageProvider(user, db, provider),
+  };
+}
+
+app.get('/api/models', async (req, res) => {
+  const { user, db, apiKey, authState } = await getAuthContext(req);
+  if (!user || authState !== 'jwt') return res.status(401).json({ detail: 'UI authentication required' });
+
+  try {
+    const groupId = queryString(req.query.group_id, 'group_id');
+    const providerId = queryString(req.query.provider_id, 'provider_id');
+    const visibility = queryString(req.query.visibility, 'visibility');
+    const source = queryString(req.query.source, 'source');
+    const enabled = queryString(req.query.enabled, 'enabled');
+    const usable = queryString(req.query.usable, 'usable');
+    const search = (queryString(req.query.q, 'q') || '').trim().toLowerCase();
+    const limit = parsePageLimit(req.query.limit);
+    const cursor = decodeCursor(req.query.after, 3);
+    if (groupId && !isGroupMember(user, db, groupId) && !isGlobalAdmin(user, db)) {
+      return res.status(403).json({ detail: 'Not a member of this group' });
+    }
+    if (visibility !== undefined && visibility !== 'public' && visibility !== 'private') {
+      return res.status(400).json({ detail: 'visibility must be public or private' });
+    }
+    if (source !== undefined && source !== 'manual' && source !== 'discovered') {
+      return res.status(400).json({ detail: 'source must be manual or discovered' });
+    }
+    if (enabled !== undefined && enabled !== 'true' && enabled !== 'false') {
+      return res.status(400).json({ detail: 'enabled must be true or false' });
+    }
+    if (usable !== undefined && usable !== 'true') {
+      return res.status(400).json({ detail: 'usable must be true' });
+    }
+    const usableOnly = usable === 'true';
+
+    const rows: any[] = [];
+    for (const provider of db.providers) {
+      if (groupId && !usableOnly && provider.group_id !== groupId) continue;
+      for (const offering of getProviderOfferings(provider, true)) {
+        const visibleInScope = usableOnly
+          ? !!apiKey && canUseOfferingForApiKey(user, apiKey, db, provider, offering)
+          : groupId
+            ? provider.group_id === groupId
+            : isGlobalAdmin(user, db) || (provider.owner_id === user.id && !provider.group_id) || offering.visibility === 'public';
+        if (!visibleInScope) continue;
+        if (providerId && provider.id !== providerId) continue;
+        if (visibility && offering.visibility !== visibility) continue;
+        if (source && offering.source !== source) continue;
+        if (enabled !== undefined && offering.enabled !== (enabled === 'true')) continue;
+        if (search && !offering.model_id.toLowerCase().includes(search) && !provider.name.toLowerCase().includes(search)) continue;
+        rows.push(serializeModelOffering(user, db, provider, offering));
+      }
+    }
+    rows.sort((left, right) => {
+      const leftKey = `${left.provider_name}\u0000${left.model_id}\u0000${left.id}`;
+      const rightKey = `${right.provider_name}\u0000${right.model_id}\u0000${right.id}`;
+      return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+    });
+    const remaining = cursor
+      ? rows.filter(row => {
+          const key = [row.provider_name, row.model_id, row.id];
+          return key[0] > cursor[0] ||
+            (key[0] === cursor[0] && key[1] > cursor[1]) ||
+            (key[0] === cursor[0] && key[1] === cursor[1] && key[2] > cursor[2]);
+        })
+      : rows;
+    const page = remaining.slice(0, limit);
+    const hasMore = remaining.length > limit;
+    return res.json({
+      object: 'list',
+      data: page,
+      has_more: hasMore,
+      next_cursor: hasMore && page.length > 0
+        ? encodeCursor([page[page.length - 1].provider_name, page[page.length - 1].model_id, page[page.length - 1].id])
+        : null,
+    });
+  } catch (error: any) {
+    return res.status(400).json({ detail: error.message });
+  }
+});
+
+app.patch('/api/models/:id', async (req, res) => {
+  const { user, db, authState } = await getAuthContext(req);
+  if (!user || authState !== 'jwt') return res.status(401).json({ detail: 'UI authentication required' });
+  if (req.body?.visibility !== 'public' && req.body?.visibility !== 'private') {
+    return res.status(400).json({ detail: 'visibility must be public or private' });
+  }
+
+  let selectedProvider: any;
+  let selectedOffering: ProviderOffering | undefined;
+  for (const provider of db.providers) {
+    const offering = getProviderOfferings(provider, true).find(candidate => candidate.id === req.params.id);
+    if (offering) {
+      selectedProvider = provider;
+      selectedOffering = offering;
+      break;
+    }
+  }
+  if (!selectedProvider || !selectedOffering) return res.status(404).json({ detail: 'Model offering not found' });
+  if (selectedProvider.immutable) return res.status(403).json({ detail: 'Default provider models must remain public' });
+  if (!canManageProvider(user, db, selectedProvider)) return res.status(403).json({ detail: 'Cannot modify this model offering' });
+
+  selectedOffering.visibility = req.body.visibility;
+  await saveDb(db);
+  return res.json(serializeModelOffering(user, db, selectedProvider, selectedOffering));
 });
 
 app.post('/api/providers/test', async (req, res) => {
@@ -1494,9 +1860,19 @@ app.post('/api/providers', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   
-  const { name, base_url, models, models_path, api_key, rate_limits, queue_max_size, group_id } = req.body;
-  if (!name || !base_url) {
+  const { name, base_url, models, models_path, models_source, api_key, rate_limits, queue_max_size, group_id } = req.body;
+  const normalizedName = typeof name === 'string' ? name.trim() : '';
+  if (!normalizedName || !base_url) {
     return res.status(400).json({ detail: "Name and base_url are required" });
+  }
+  if (models_source !== undefined && models_source !== 'manual' && models_source !== 'discovered') {
+    return res.status(400).json({ detail: "models_source must be manual or discovered" });
+  }
+  let modelNames: string[];
+  try {
+    modelNames = parseProviderModelIds(models === undefined || models === '' ? 'default' : models);
+  } catch (error: any) {
+    return res.status(400).json({ detail: error.message });
   }
   // ponytail: this is per-process; move the limiter to shared storage for multi-instance enforcement.
   const urlRateLimit = rateLimiter.check(user.id, 'provider-url-change', [{ limit: 10, windowMs: 60_000 }]);
@@ -1520,52 +1896,40 @@ app.post('/api/providers', async (req, res) => {
     if (!isGroupMember(user, db, group_id)) {
       return res.status(403).json({ detail: "Not a member of this group" });
     }
-    const existing = db.providers.find((p: any) => p.name === name && p.group_id === group_id);
+    const existing = db.providers.find((p: any) => p.name === normalizedName && p.group_id === group_id);
     if (existing) {
-      return res.status(409).json({ detail: `A provider with name "${name}" already exists in this group` });
+      return res.status(409).json({ detail: `A provider with name "${normalizedName}" already exists in this group` });
     }
   } else {
     const existing = db.providers.find((p: any) => 
-      p.name === name && !p.group_id && (p.owner_id === user.id || p.visibility === 'public')
+      p.name === normalizedName && !p.group_id && (p.owner_id === user.id || p.visibility === 'public')
     );
     if (existing) {
-      return res.status(409).json({ detail: `A provider with name "${name}" already exists` });
+      return res.status(409).json({ detail: `A provider with name "${normalizedName}" already exists` });
     }
   }
   
   const entry: any = {
     id: `provider-id-${crypto.randomUUID()}`,
-    name,
+    name: normalizedName,
     base_url,
-    models: models || 'default',
+    models: modelNames.join(','),
     models_path: normalizedModelsPath,
     api_key: api_key ? encryptProviderKey(api_key, user.id) : '',
     owner_id: user.id,
     group_id: group_id || null,
     visibility: 'private',
     immutable: false,
-    allow_private: validatedUrl.requiresPrivateAccess
+    allow_private: validatedUrl.requiresPrivateAccess,
+    offerings: []
   };
   
   db.providers.push(entry);
-
-  // Upsert model_pricing for each model
-  const modelNames = (models || 'default').split(',').map((m: string) => m.trim());
-  for (const modelName of modelNames) {
-    const existing = db.model_pricing.find((mp: any) => mp.model_id === modelName);
-    if (existing) {
-      if (rate_limits) existing.rate_limits = rate_limits;
-      if (queue_max_size !== undefined) existing.queue_max_size = queue_max_size;
-    } else {
-      db.model_pricing.push({
-        model_id: modelName,
-        input_cost_per_1m_tokens: 0,
-        output_cost_per_1m_tokens: 0,
-        rate_limits: rate_limits || APP_CONFIG.default_provider_model_rate_limits,
-        queue_max_size: queue_max_size ?? APP_CONFIG.default_provider_model_queue_max_size
-      });
-    }
-  }
+  syncProviderOfferings(db, entry, modelNames, {
+    source: models_source === 'discovered' ? 'discovered' : 'manual',
+    ...(rate_limits !== undefined ? { rate_limits } : {}),
+    ...(queue_max_size !== undefined ? { queue_max_size } : {}),
+  });
 
   await saveDb(db);
   res.json(entry);
@@ -1592,7 +1956,30 @@ app.put('/api/providers/:id', async (req, res) => {
     return res.status(403).json({ detail: "Cannot modify this provider" });
   }
   
-  const { name, base_url, models, models_path, api_key, rate_limits, queue_max_size } = req.body;
+  const { name, base_url, models, models_path, models_source, api_key, rate_limits, queue_max_size } = req.body;
+
+  if (models_source !== undefined && models_source !== 'manual' && models_source !== 'discovered') {
+    return res.status(400).json({ detail: "models_source must be manual or discovered" });
+  }
+  let normalizedName: string | undefined;
+  if (name !== undefined) {
+    normalizedName = typeof name === 'string' ? name.trim() : '';
+    if (!normalizedName) return res.status(400).json({ detail: 'Name cannot be empty' });
+    const duplicate = db.providers.find((candidate: any) =>
+      candidate.id !== provider.id && candidate.name === normalizedName && candidate.group_id === provider.group_id &&
+      (provider.group_id || candidate.owner_id === user.id || candidate.visibility === 'public')
+    );
+    if (duplicate) return res.status(409).json({ detail: `A provider with name "${normalizedName}" already exists` });
+  }
+
+  let modelNames = getProviderModelNames(provider);
+  if (models !== undefined) {
+    try {
+      modelNames = parseProviderModelIds(models);
+    } catch (error: any) {
+      return res.status(400).json({ detail: error.message });
+    }
+  }
 
   let validatedUrl: ValidatedProviderUrl | null = null;
   const shouldValidateUrl = base_url && base_url !== provider.base_url;
@@ -1628,34 +2015,21 @@ app.put('/api/providers/:id', async (req, res) => {
     return res.status(400).json({ detail: "Queue max size must be a positive integer" });
   }
   
-  if (name) provider.name = name;
+  if (normalizedName !== undefined) provider.name = normalizedName;
   if (shouldValidateUrl) {
     provider.base_url = base_url;
     provider.allow_private = validatedUrl!.requiresPrivateAccess;
   }
-  if (models) provider.models = models;
   if (normalizedModelsPath !== null) provider.models_path = normalizedModelsPath;
   if (api_key !== undefined) {
     provider.api_key = api_key ? encryptProviderKey(api_key, user.id) : provider.api_key;
   }
 
-  // Upsert model_pricing for each model
-  const modelNames = (models || provider.models).split(',').map((m: string) => m.trim());
-  for (const modelName of modelNames) {
-    const existing = db.model_pricing.find((mp: any) => mp.model_id === modelName);
-    if (existing) {
-      if (rate_limits !== undefined) existing.rate_limits = rate_limits;
-      if (queue_max_size !== undefined) existing.queue_max_size = queue_max_size;
-    } else {
-      db.model_pricing.push({
-        model_id: modelName,
-        input_cost_per_1m_tokens: 0,
-        output_cost_per_1m_tokens: 0,
-        rate_limits: rate_limits || APP_CONFIG.default_provider_model_rate_limits,
-        queue_max_size: queue_max_size ?? APP_CONFIG.default_provider_model_queue_max_size
-      });
-    }
-  }
+  syncProviderOfferings(db, provider, modelNames, {
+    source: models_source === 'discovered' ? 'discovered' : 'manual',
+    ...(rate_limits !== undefined ? { rate_limits } : {}),
+    ...(queue_max_size !== undefined ? { queue_max_size } : {}),
+  });
 
   await saveDb(db);
   res.json(provider);
@@ -1847,7 +2221,7 @@ app.get('/api/admin/users/:userId', async (req, res) => {
 
   const providers = db.providers
     .filter((p: any) => p.owner_id === targetUser.id)
-    .map((p: any) => ({ id: p.id, name: p.name, base_url: p.base_url, models: p.models, models_path: p.models_path || 'models' }));
+    .map((p: any) => ({ id: p.id, name: p.name, base_url: p.base_url, models: getProviderModelNames(p).join(','), models_path: p.models_path || 'models' }));
 
   const userGroups = db.groups
     .filter((g: any) => g.members.some((m: any) => m.ids.includes(targetUser.id)))
@@ -1941,11 +2315,11 @@ app.get('/api/admin/users/:userId/usage', async (req, res) => {
   const events = db.usage_events.filter((e: any) => userKeyIds.includes(e.api_key_id));
 
   const result = events.map((e: any) => {
-    const pricing = db.model_pricing.find((mp: any) => mp.model_id === e.model_id);
     const apiKey = db.api_keys.find((k: any) => k.id === e.api_key_id);
     const provider = db.providers.find((p: any) => p.id === e.provider_id);
-    const inputCostPerM = pricing?.input_cost_per_1m_tokens ?? 0;
-    const outputCostPerM = pricing?.output_cost_per_1m_tokens ?? 0;
+    const pricing = provider ? getModelSettings(db, provider, e.model_id) : db.model_pricing.find((mp: any) => mp.model_id === e.model_id);
+    const inputCostPerM = e.input_price_per_1m_tokens ?? pricing?.input_cost_per_1m_tokens ?? 0;
+    const outputCostPerM = e.output_price_per_1m_tokens ?? pricing?.output_cost_per_1m_tokens ?? 0;
     const inputCost = (e.input_tokens / 1_000_000) * inputCostPerM;
     const outputCost = (e.output_tokens / 1_000_000) * outputCostPerM;
 
@@ -1998,21 +2372,128 @@ app.delete('/api/messages', async (req, res) => {
 // --- CHAT LOGIC ---
 app.get('/api/config', async (req, res) => {
   const db = await loadDb();
-  const { api_key, ...safeConfig } = APP_CONFIG;
+  const { default_provider_api_key, default_provider_url, ...safeConfig } = APP_CONFIG;
   res.json({ 
     ...safeConfig, 
     app_name: APP_CONFIG.app_name,
     chat_persistence: CHAT_PERSISTENCE,
     signups_enabled: SIGNUPS_ENABLED,
-    providers: db.providers.filter((p: any) => p.visibility === 'public').map((p: any) => {
-      const { api_key, ...rest } = p;
-      return rest;
-    })
+    providers: db.providers.filter((p: any) => p.visibility === 'public').map((p: any) => ({
+      id: p.id,
+      name: p.name,
+      models: getProviderModelNames(p).join(','),
+      visibility: p.visibility,
+      immutable: p.immutable,
+      model_count: getProviderOfferings(p).length,
+    }))
   });
 });
 
 app.post('/api/config', (req, res) => {
   res.json({ status: "success" });
+});
+
+function sendOpenAiError(res: Response, status: number, message: string, type: string, code: string) {
+  return res.status(status).json({ error: { message, type, param: null, code } });
+}
+
+function parseProviderQuery(req: Request): { providerName?: string; providerId?: string } {
+  const providerNameValue = queryString(req.query.provider, 'provider');
+  const providerIdValue = queryString(req.query.provider_id, 'provider_id');
+  const providerName = providerNameValue?.trim();
+  const providerId = providerIdValue?.trim();
+  if (providerNameValue !== undefined && !providerName) throw new Error('provider must be a non-empty string');
+  if (providerIdValue !== undefined && !providerId) throw new Error('provider_id must be a non-empty string');
+  return { ...(providerName ? { providerName } : {}), ...(providerId ? { providerId } : {}) };
+}
+
+function modelCatalogEntries(db: any, user: any, apiKey: any, authState: string, selector: { providerName?: string; providerId?: string }) {
+  const authenticated = authState === 'jwt' || authState === 'api_key';
+  const offeringsFor = (provider: any): ProviderOffering[] => authenticated
+    ? getUsableProviderOfferings(user, apiKey, db, provider)
+    : getProviderOfferings(provider).filter(offering => offering.visibility === 'public');
+  let providers: any[];
+
+  if (selector.providerId) {
+    const selected = db.providers.find((provider: any) => provider.id === selector.providerId);
+    providers = selected && offeringsFor(selected).length > 0 ? [selected] : [];
+  } else if (selector.providerName) {
+    providers = db.providers.filter((provider: any) => provider.name === selector.providerName && offeringsFor(provider).length > 0);
+  } else if (authenticated) {
+    providers = db.providers.filter((provider: any) => offeringsFor(provider).length > 0);
+  } else {
+    providers = db.providers.filter((provider: any) => provider.immutable === true && offeringsFor(provider).length > 0);
+  }
+
+  if (selector.providerName && selector.providerId) {
+    providers = providers.filter(provider => provider.name === selector.providerName);
+  }
+  if ((selector.providerName || selector.providerId) && providers.length === 0) {
+    return { error: { status: 404, message: 'Provider not found', code: 'invalid_provider' }, entries: [] as any[] };
+  }
+  if (selector.providerName && !selector.providerId && providers.length > 1) {
+    return { error: { status: 400, message: 'Provider name is ambiguous; use provider_id', code: 'ambiguous_provider' }, entries: [] as any[] };
+  }
+
+  const entries: { provider: any; offering: ProviderOffering }[] = [];
+  for (const provider of providers.sort(compareProviders)) {
+    for (const offering of offeringsFor(provider)) entries.push({ provider, offering });
+  }
+  if (!selector.providerName && !selector.providerId) {
+    const deduplicated = new Map<string, { provider: any; offering: ProviderOffering }>();
+    for (const entry of entries) {
+      if (!deduplicated.has(entry.offering.model_id)) deduplicated.set(entry.offering.model_id, entry);
+    }
+    return { entries: [...deduplicated.values()].sort((left, right) => left.offering.model_id.localeCompare(right.offering.model_id)) };
+  }
+  return { entries: entries.sort((left, right) => left.offering.model_id.localeCompare(right.offering.model_id)) };
+}
+
+function openAiModel(entry: { provider: any; offering: ProviderOffering }) {
+  return {
+    id: entry.offering.model_id,
+    object: 'model',
+    created: entry.offering.created_at,
+    owned_by: entry.provider.name,
+  };
+}
+
+app.get('/v1/models', async (req: Request, res: Response) => {
+  const { user, db, apiKey, authState } = await getAuthContext(req);
+  if (authState === 'invalid') {
+    return sendOpenAiError(res, 401, 'Invalid authentication credentials', 'authentication_error', 'invalid_api_key');
+  }
+  let selector: { providerName?: string; providerId?: string };
+  try {
+    selector = parseProviderQuery(req);
+  } catch (error: any) {
+    return sendOpenAiError(res, 400, error.message, 'invalid_request_error', 'invalid_provider');
+  }
+  const result = modelCatalogEntries(db, user, apiKey, authState, selector);
+  if (result.error) {
+    return sendOpenAiError(res, result.error.status, result.error.message, 'invalid_request_error', result.error.code);
+  }
+  return res.json({ object: 'list', data: result.entries.map(openAiModel) });
+});
+
+app.get('/v1/models/:model', async (req: Request, res: Response) => {
+  const { user, db, apiKey, authState } = await getAuthContext(req);
+  if (authState === 'invalid') {
+    return sendOpenAiError(res, 401, 'Invalid authentication credentials', 'authentication_error', 'invalid_api_key');
+  }
+  let selector: { providerName?: string; providerId?: string };
+  try {
+    selector = parseProviderQuery(req);
+  } catch (error: any) {
+    return sendOpenAiError(res, 400, error.message, 'invalid_request_error', 'invalid_provider');
+  }
+  const result = modelCatalogEntries(db, user, apiKey, authState, selector);
+  if (result.error) {
+    return sendOpenAiError(res, result.error.status, result.error.message, 'invalid_request_error', result.error.code);
+  }
+  const entry = result.entries.find(candidate => candidate.offering.model_id === req.params.model);
+  if (!entry) return sendOpenAiError(res, 404, `The model '${req.params.model}' does not exist or you do not have access to it`, 'invalid_request_error', 'model_not_found');
+  return res.json(openAiModel(entry));
 });
 
 app.post('/api/chat/stream', async (req, res) => {
@@ -2021,31 +2502,6 @@ app.post('/api/chat/stream', async (req, res) => {
   if (!apiKey) return res.status(400).json({ detail: "An API key is required to use the chat" });
 
   const { messages, provider_id, model: requestedModelValue } = req.body;
-  
-  // Find the provider to use
-  let provider = db.providers.find((p: any) => p.immutable === true);
-  if (provider_id) {
-    const requestedProvider = db.providers.find((p: any) => p.id === provider_id);
-    if (!requestedProvider) {
-      return res.status(400).json({ detail: "Provider not found" });
-    }
-    if (requestedProvider.visibility === 'public' || requestedProvider.owner_id === user.id || (requestedProvider.group_id && isGroupMember(user, db, requestedProvider.group_id))) {
-      provider = requestedProvider;
-    } else {
-      return res.status(403).json({ detail: "Forbidden: No access to this provider" });
-    }
-  }
-  
-  if (!provider) {
-    return res.status(400).json({ detail: "No provider configured" });
-  }
-
-  // Permission Check - verify access to provider
-  if (!hasPermission(user, db, "use", "providers", provider.name)) {
-    return res.status(403).json({ detail: "Forbidden: No permission to use this provider" });
-  }
-
-  const providerModels = provider.models.split(',').map((model: string) => model.trim()).filter(Boolean);
   if (requestedModelValue !== undefined && typeof requestedModelValue !== 'string') {
     return res.status(400).json({ detail: "Model must be a string" });
   }
@@ -2053,12 +2509,34 @@ app.post('/api/chat/stream', async (req, res) => {
   if (requestedModelValue !== undefined && !requestedModel) {
     return res.status(400).json({ detail: "Model cannot be empty" });
   }
-  const modelId = requestedModel || providerModels[0];
-  if (!modelId || !providerModels.includes(modelId)) {
+  if (provider_id !== undefined && (typeof provider_id !== 'string' || !provider_id.trim())) {
+    return res.status(400).json({ detail: 'provider_id must be a non-empty string' });
+  }
+
+  // Find the provider to use
+  let provider: any;
+  if (provider_id) {
+    provider = db.providers.find((candidate: any) => candidate.id === provider_id.trim());
+    if (!provider || getUsableProviderOfferings(user, apiKey, db, provider).length === 0) {
+      return res.status(400).json({ detail: "Provider not found" });
+    }
+  } else {
+    const availableProviders = db.providers.filter((candidate: any) => {
+      const usable = getUsableProviderOfferings(user, apiKey, db, candidate);
+      return requestedModel ? usable.some(offering => offering.model_id === requestedModel) : usable.length > 0;
+    });
+    provider = availableProviders.sort(compareProviders)[0];
+  }
+  if (!provider) return res.status(400).json({ detail: requestedModel ? `No provider configured for model ${requestedModel}` : "No provider configured" });
+
+  const usableOfferings = getUsableProviderOfferings(user, apiKey, db, provider);
+  const modelId = requestedModel || usableOfferings[0]?.model_id;
+  const configuredOffering = modelId ? usableOfferings.find(offering => offering.model_id === modelId) : undefined;
+  if (!modelId || !configuredOffering) {
     return res.status(400).json({ detail: `Model ${modelId || '(none)'} is not configured for provider ${provider.name}` });
   }
-  if (!hasPermission(user, db, "use", "models", modelId)) {
-    return res.status(403).json({ detail: "Forbidden: No permission to use this model" });
+  if (!canUseOfferingForApiKey(user, apiKey, db, provider, configuredOffering)) {
+    return res.status(403).json({ detail: "Forbidden: No permission to use this provider model" });
   }
 
   const requestId = crypto.randomUUID();
@@ -2071,8 +2549,8 @@ app.post('/api/chat/stream', async (req, res) => {
   };
 
   // Rate limit check per user per model
-  const modelLimits = getModelRateLimits(db, modelId);
-  const rateLimitResult = rateLimiter.check(user.id, modelId, modelLimits);
+  const modelLimits = getModelRateLimits(db, provider, modelId);
+  const rateLimitResult = rateLimiter.check(user.id, `${provider.id}:${modelId}`, modelLimits);
   if (!rateLimitResult.allowed) {
     return res.status(429).json({ detail: `Rate limit exceeded for ${user.name} using model ${modelId} from provider ${provider.name}` });
   }
@@ -2085,8 +2563,11 @@ app.post('/api/chat/stream', async (req, res) => {
 
   // Queue check per user per model
   const queueKey = `${provider.id}:${modelId}`;
-  const queueMaxSize = getModelQueueMaxSize(db, modelId);
+  const queueMaxSize = getModelQueueMaxSize(db, provider, modelId);
   const beforeQueueSize = requestQueue.getQueueSize(queueKey);
+  const modelSettings = getModelSettings(db, provider, modelId);
+  const inputPricePerM = modelSettings?.input_cost_per_1m_tokens ?? 0;
+  const outputPricePerM = modelSettings?.output_cost_per_1m_tokens ?? 0;
 
   console.log(JSON.stringify({
     timestamp: new Date().toISOString(),
@@ -2103,8 +2584,8 @@ app.post('/api/chat/stream', async (req, res) => {
     requested_model: requestedModel,
     model: modelId,
     source: 'UI',
-    input_price_per_1m: APP_CONFIG.default_provider_model_in_price_1m,
-    output_price_per_1m: APP_CONFIG.default_provider_model_out_price_1m,
+    input_price_per_1m: inputPricePerM,
+    output_price_per_1m: outputPricePerM,
     rate_limit_windows: rateLimitResult.windows,
     queue: { size: beforeQueueSize, limit: queueMaxSize }
   }));
@@ -2165,8 +2646,8 @@ app.post('/api/chat/stream', async (req, res) => {
     const duration = Date.now() - startTime;
     outputTokens = Math.ceil((assistantContent + thinkingContent).length / 4);
     const tps = duration > 0 ? (outputTokens / (duration / 1000)).toFixed(2) : '0';
-    const inputCost = (inputTokens / 1_000_000) * APP_CONFIG.default_provider_model_in_price_1m;
-    const outputCost = (outputTokens / 1_000_000) * APP_CONFIG.default_provider_model_out_price_1m;
+    const inputCost = (inputTokens / 1_000_000) * inputPricePerM;
+    const outputCost = (outputTokens / 1_000_000) * outputPricePerM;
     console.log(JSON.stringify({
       timestamp: new Date().toISOString(),
       source_ip: req.ip || req.socket.remoteAddress,
@@ -2188,8 +2669,8 @@ app.post('/api/chat/stream', async (req, res) => {
       requested_model: requestedModel,
       model: modelId,
       source: 'UI',
-      input_price_per_1m: APP_CONFIG.default_provider_model_in_price_1m,
-      output_price_per_1m: APP_CONFIG.default_provider_model_out_price_1m,
+      input_price_per_1m: inputPricePerM,
+      output_price_per_1m: outputPricePerM,
       input_cost: Math.round(inputCost * 1_000_000_000) / 1_000_000_000,
       output_cost: Math.round(outputCost * 1_000_000_000) / 1_000_000_000,
       total_cost: Math.round((inputCost + outputCost) * 1_000_000_000) / 1_000_000_000,
@@ -2231,6 +2712,8 @@ app.post('/api/chat/stream', async (req, res) => {
         input_tokens: inputTokens,
         output_tokens: outputTokens,
         source: 'UI',
+        input_price_per_1m_tokens: inputPricePerM,
+        output_price_per_1m_tokens: outputPricePerM,
       });
       await saveDb(db);
       const duration = Date.now() - startTime;
@@ -2350,45 +2833,109 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
   if (!user) return res.status(401).json({ error: { message: "Auth required", type: "authentication_error", code: "invalid_api_key" }});
   if (!apiKey) return res.status(400).json({ error: { message: "An API key is required", type: "invalid_request_error", code: "missing_api_key" }});
 
-  const { messages, model: reqModel, stream, provider_id } = req.body;
-  
-  // Find the provider to use
-  let provider = db.providers.find((p: any) => p.immutable === true);
-  if (provider_id) {
-    const requestedProvider = db.providers.find((p: any) => p.id === provider_id);
-    if (requestedProvider) {
-      if (requestedProvider.visibility === 'public' || requestedProvider.owner_id === user.id || (requestedProvider.group_id && isGroupMember(user, db, requestedProvider.group_id))) {
-        provider = requestedProvider;
-      } else {
-        return res.status(403).json({ error: { message: "Forbidden: No access to this provider", type: "permission_error", code: "insufficient_permissions" }});
+  const {
+    messages,
+    model: requestedModelValue,
+    stream,
+    provider: requestedProviderNameValue,
+    provider_id: requestedProviderIdValue,
+  } = req.body;
+
+  if (requestedModelValue !== undefined && typeof requestedModelValue !== 'string') {
+    return res.status(400).json({ error: { message: "Model must be a string", type: "invalid_request_error", code: "invalid_model" }});
+  }
+  const requestedModel = typeof requestedModelValue === 'string' ? requestedModelValue.trim() : null;
+  if (requestedModelValue !== undefined && !requestedModel) {
+    return res.status(400).json({ error: { message: "Model cannot be empty", type: "invalid_request_error", code: "invalid_model" }});
+  }
+
+  const hasProviderId = requestedProviderIdValue !== undefined;
+  const hasProviderName = requestedProviderNameValue !== undefined;
+  if (hasProviderId && (typeof requestedProviderIdValue !== 'string' || !requestedProviderIdValue.trim())) {
+    return res.status(400).json({ error: { message: "provider_id must be a non-empty string", type: "invalid_request_error", code: "invalid_provider" }});
+  }
+  if (hasProviderName && (typeof requestedProviderNameValue !== 'string' || !requestedProviderNameValue.trim())) {
+    return res.status(400).json({ error: { message: "provider must be a non-empty string", type: "invalid_request_error", code: "invalid_provider" }});
+  }
+  const requestedProviderId = hasProviderId ? requestedProviderIdValue.trim() : null;
+  const requestedProviderName = hasProviderName ? requestedProviderNameValue.trim() : null;
+
+  // Provider selectors are optional OpenAI extensions. Without one, prefer the
+  // deployment default for the requested model, then another usable provider.
+  let provider: any;
+  if (requestedProviderId) {
+    provider = db.providers.find((candidate: any) => candidate.id === requestedProviderId);
+    if (!provider || getUsableProviderOfferings(user, apiKey, db, provider).length === 0) {
+      return res.status(400).json({ error: { message: "Provider not found", type: "invalid_request_error", code: "invalid_provider" }});
+    }
+  }
+  if (requestedProviderName) {
+    if (provider && provider.name !== requestedProviderName) {
+      return res.status(400).json({ error: { message: "provider and provider_id select different providers", type: "invalid_request_error", code: "invalid_provider" }});
+    }
+    if (!provider) {
+      const namedProviders = db.providers.filter((candidate: any) =>
+        candidate.name === requestedProviderName && getUsableProviderOfferings(user, apiKey, db, candidate).length > 0
+      );
+      if (namedProviders.length === 0) {
+        return res.status(400).json({ error: { message: "Provider not found", type: "invalid_request_error", code: "invalid_provider" }});
+      }
+      if (namedProviders.length === 1) provider = namedProviders[0];
+      else {
+        return res.status(400).json({ error: { message: "Provider name is ambiguous; use provider_id", type: "invalid_request_error", code: "ambiguous_provider" }});
       }
     }
   }
-  
+
   if (!provider) {
-    return res.status(400).json({ error: { message: "No provider configured", type: "invalid_request_error" }});
+    const availableProviders = db.providers.filter((candidate: any) => {
+      const offerings = getUsableProviderOfferings(user, apiKey, db, candidate);
+      return offerings.length > 0 && (!requestedModel || offerings.some(offering => offering.model_id === requestedModel));
+    });
+    provider = availableProviders.sort(compareProviders)[0];
   }
 
-  if (!hasPermission(user, db, "use", "providers", provider.name)) {
-    return res.status(403).json({ error: { message: "Forbidden: No permission to use this provider", type: "permission_error", code: "insufficient_permissions" }});
+  if (!provider) {
+    const message = requestedModel
+      ? `No provider configured for model ${requestedModel}`
+      : "No provider configured";
+    return res.status(400).json({ error: { message, type: "invalid_request_error", code: requestedModel ? "model_not_found" : "provider_not_found" }});
   }
 
-  // Rate limit check per user per model
-  const chatModelId = reqModel || provider.models.split(',')[0].trim();
-  const modelLimits = getModelRateLimits(db, chatModelId);
-  const rateLimitResult = rateLimiter.check(user.id, chatModelId, modelLimits);
-  if (!rateLimitResult.allowed) {
-    return res.status(429).json({ error: { message: `Rate limit exceeded for ${user.name} using model ${chatModelId} from provider ${provider.name}`, type: "rate_limit_exceeded" }});
+  const usableOfferings = getUsableProviderOfferings(user, apiKey, db, provider);
+  const modelId = requestedModel || usableOfferings[0]?.model_id;
+  const configuredOffering = modelId ? usableOfferings.find(offering => offering.model_id === modelId) : undefined;
+  if (!modelId || !configuredOffering) {
+    return res.status(400).json({ error: { message: `Model ${modelId || '(none)'} is not configured for provider ${provider.name}`, type: "invalid_request_error", code: "model_not_found" }});
+  }
+  if (!canUseOfferingForApiKey(user, apiKey, db, provider, configuredOffering)) {
+    return res.status(403).json({ error: { message: "Forbidden: No permission to use this provider model", type: "permission_error", code: "insufficient_permissions" }});
   }
 
   const startTime = Date.now();
   const requestId = `chatcmpl-${crypto.randomUUID()}`;
-  res.locals.log = { request_id: requestId, provider_id: provider.id, source: 'API' };
+  res.locals.log = {
+    request_id: requestId,
+    provider_id: provider.id,
+    requested_model: requestedModel,
+    model: modelId,
+    source: 'API'
+  };
+
+  // Rate limit check per user per model
+  const modelLimits = getModelRateLimits(db, provider, modelId);
+  const rateLimitResult = rateLimiter.check(user.id, `${provider.id}:${modelId}`, modelLimits);
+  if (!rateLimitResult.allowed) {
+    return res.status(429).json({ error: { message: `Rate limit exceeded for ${user.name} using model ${modelId} from provider ${provider.name}`, type: "rate_limit_exceeded" }});
+  }
 
   // Queue check per user per model
-  const queueKey = `${provider.id}:${chatModelId}`;
-  const queueMaxSize = getModelQueueMaxSize(db, chatModelId);
+  const queueKey = `${provider.id}:${modelId}`;
+  const queueMaxSize = getModelQueueMaxSize(db, provider, modelId);
   const beforeQueueSize = requestQueue.getQueueSize(queueKey);
+  const modelSettings = getModelSettings(db, provider, modelId);
+  const inputPricePerM = modelSettings?.input_cost_per_1m_tokens ?? 0;
+  const outputPricePerM = modelSettings?.output_cost_per_1m_tokens ?? 0;
 
   console.log(JSON.stringify({
     timestamp: new Date().toISOString(),
@@ -2402,9 +2949,11 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
     refer: req.get('Referer') || '-',
     request_id: requestId,
     provider_id: provider.id,
+    requested_model: requestedModel,
+    model: modelId,
     source: 'API',
-    input_price_per_1m: APP_CONFIG.default_provider_model_in_price_1m,
-    output_price_per_1m: APP_CONFIG.default_provider_model_out_price_1m,
+    input_price_per_1m: inputPricePerM,
+    output_price_per_1m: outputPricePerM,
     rate_limit_windows: rateLimitResult.windows,
     queue: { size: beforeQueueSize, limit: queueMaxSize }
   }));
@@ -2412,7 +2961,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
   const queued = await requestQueue.enqueue(queueKey, queueMaxSize);
   if (!queued.ok) {
     if (queued.reason === 'timeout') {
-      return res.status(504).json({ error: { message: `Request timed out waiting in queue for ${user.name} using model ${chatModelId} from provider ${provider.name}`, type: "queue_timeout" }});
+      return res.status(504).json({ error: { message: `Request timed out waiting in queue for ${user.name} using model ${modelId} from provider ${provider.name}`, type: "queue_timeout" }});
     }
     console.log(JSON.stringify({
       timestamp: new Date().toISOString(),
@@ -2421,11 +2970,11 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
       queue: { size: requestQueue.getQueueSize(queueKey), limit: queueMaxSize },
       provider_id: provider.id,
       provider_name: provider.name,
-      model_id: chatModelId,
+      model_id: modelId,
       owner_id: provider.owner_id || null,
       api_key_prefix: apiKey?.key_prefix || 'N/A'
     }));
-    return res.status(429).json({ error: { message: `Too many concurrent requests for ${user.name} using model ${chatModelId} from provider ${provider.name}`, type: "queue_full" }});
+    return res.status(429).json({ error: { message: `Too many concurrent requests for ${user.name} using model ${modelId} from provider ${provider.name}`, type: "queue_full" }});
   }
 
   if (stream === true) {
@@ -2446,7 +2995,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
     );
     const response = await axios.post(`${provider.base_url}/chat/completions`, buildProviderChatBody(
       req.body,
-      reqModel || provider.models.split(',')[0].trim(),
+      modelId,
       messages,
       false
     ), {
@@ -2457,8 +3006,8 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
     const assistantMessage = response.data.choices[0].message;
     const duration = Date.now() - startTime;
     const outputTokens = Math.ceil((assistantMessage.content?.length || 0) / 4);
-    const inputCost = (inputTokens / 1_000_000) * APP_CONFIG.default_provider_model_in_price_1m;
-    const outputCost = (outputTokens / 1_000_000) * APP_CONFIG.default_provider_model_out_price_1m;
+    const inputCost = (inputTokens / 1_000_000) * inputPricePerM;
+    const outputCost = (outputTokens / 1_000_000) * outputPricePerM;
 
     requestQueue.dequeue(queueKey);
 
@@ -2467,8 +3016,8 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
       input_tokens: inputTokens,
       output_tokens: outputTokens,
       tokens_per_second: duration > 0 ? parseFloat((outputTokens / (duration / 1000)).toFixed(2)) : 0,
-      input_price_per_1m: APP_CONFIG.default_provider_model_in_price_1m,
-      output_price_per_1m: APP_CONFIG.default_provider_model_out_price_1m,
+      input_price_per_1m: inputPricePerM,
+      output_price_per_1m: outputPricePerM,
       input_cost: Math.round(inputCost * 1_000_000_000) / 1_000_000_000,
       output_cost: Math.round(outputCost * 1_000_000_000) / 1_000_000_000,
       total_cost: Math.round((inputCost + outputCost) * 1_000_000_000) / 1_000_000_000,
@@ -2477,7 +3026,6 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
     };
     
     // Record usage event
-    const modelId = reqModel || provider.models.split(',')[0].trim();
     db.usage_events.push({
       id: `usage-event-id-${crypto.randomUUID()}`,
       api_key_id: apiKey.id,
@@ -2489,6 +3037,8 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
       input_tokens: inputTokens,
       output_tokens: outputTokens,
       source: 'API',
+      input_price_per_1m_tokens: inputPricePerM,
+      output_price_per_1m_tokens: outputPricePerM,
     });
     await saveDb(db);
 
@@ -2496,7 +3046,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
       id: requestId,
       object: "chat.completion",
       created: Math.floor(Date.now() / 1000),
-      model: reqModel || APP_CONFIG.model,
+      model: modelId,
       choices: [{
         index: 0,
         message: {
@@ -2516,7 +3066,14 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
   } catch (err: any) {
     requestQueue.dequeue(queueKey);
     res.locals.log = { ...res.locals.log, error: err.message };
-    res.status(500).json({ error: { message: err.message, type: "internal_error", code: "internal_error" }});
+    const providerUnavailable = err instanceof ProviderUrlError;
+    res.status(providerUnavailable ? 502 : 500).json({
+      error: {
+        message: err.message,
+        type: providerUnavailable ? "provider_error" : "internal_error",
+        code: providerUnavailable ? "provider_unavailable" : "internal_error"
+      }
+    });
   }
 });
 
@@ -2540,12 +3097,12 @@ app.get('/api/usage', async (req, res) => {
 
   // Join with pricing and resolve names
   const result = events.map((e: any) => {
-    const pricing = db.model_pricing.find((mp: any) => mp.model_id === e.model_id);
     const apiKey = db.api_keys.find((k: any) => k.id === e.api_key_id);
     const provider = db.providers.find((p: any) => p.id === e.provider_id);
+    const pricing = provider ? getModelSettings(db, provider, e.model_id) : db.model_pricing.find((mp: any) => mp.model_id === e.model_id);
 
-    const inputCostPerM = pricing?.input_cost_per_1m_tokens ?? 0;
-    const outputCostPerM = pricing?.output_cost_per_1m_tokens ?? 0;
+    const inputCostPerM = e.input_price_per_1m_tokens ?? pricing?.input_cost_per_1m_tokens ?? 0;
+    const outputCostPerM = e.output_price_per_1m_tokens ?? pricing?.output_cost_per_1m_tokens ?? 0;
 
     const inputCost = (e.input_tokens / 1_000_000) * inputCostPerM;
     const outputCost = (e.output_tokens / 1_000_000) * outputCostPerM;
@@ -2632,7 +3189,7 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 // Export app for testing; only auto-start when not in test mode
-export { app };
+export { app, ensureDefaults };
 if (process.env.NODE_ENV !== 'test') {
   startServer();
 } else {

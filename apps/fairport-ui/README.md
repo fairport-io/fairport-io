@@ -61,6 +61,23 @@ remain unavailable to UI-created providers. Only Global Admins may change an
 approved private-network provider's URL. Immutable `DEFAULT_PROVIDER_URL`
 providers remain operator-controlled.
 
+### Models
+
+The Models page presents models as provider-scoped offerings, so the same model
+ID can exist on more than one provider without sharing visibility, pricing,
+rate limits, or queue settings. Offerings record whether they were entered
+manually or discovered, and providers link directly to their filtered model
+list. The table supports search, provider and visibility filters, cursor
+pagination, and a responsive mobile layout.
+
+Provider owners, owning-group members, and Global Admins can make an offering
+public. The confirmation calls out the capacity and cost impact: public means
+every authenticated user with matching RBAC permissions may route requests
+through that offering. It does not enable anonymous inference. Immutable
+default-provider offerings remain public and operator-managed. The Chat
+provider/model selectors are built from the offerings usable by the selected
+API key, including public offerings on another user's private provider.
+
 ### Usage
 
 View usage and billing details.
@@ -102,8 +119,11 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | **Providers** | Optional authenticated model discovery before adding a provider |
 | **Providers** | Global Admin approval for LAN/private and Kubernetes endpoints; other users are limited to public destinations |
 | **Providers** | Immutable default provider (cannot be edited / deleted) |
-| **Providers** | Responsive provider cards with wrapping URLs/models and inline editing |
+| **Providers** | Responsive, paginated provider cards with full-width names/URLs, model counts, and inline editing |
 | **Providers** | Active provider selector in header bar |
+| **Models** | Provider-scoped manual/discovered model catalog with stable offering IDs |
+| **Models** | Search plus provider/visibility filters and cursor-paginated responsive table |
+| **Models** | Authorized public/private controls with an explicit capacity/cost warning |
 | **Chat** | SSE streaming chat |
 | **Chat** | Per-chat Extra Parameters modal with typed JSON values, refresh persistence, and reserved-field protection |
 | **Chat** | Client-side persistence (browser localStorage) via `CHAT_PERSISTENCE=client` — no server-side message storage |
@@ -139,30 +159,64 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | **Mobile** | Slide-over sidebar drawer on screens < 768px |
 | **Mobile** | Fixed top bar with hamburger menu |
 | **Mobile** | Responsive header dropdowns |
-| **Sidebar** | 6 tabs: Chat, API, Providers, Usage, Deployments, Settings |
+| **Sidebar** | 7 tabs: Chat, API, Providers, Models, Usage, Deployments, Settings |
 | **Sidebar** | Active tab highlighting |
 | **Settings** | Delete account with email confirmation |
 | **Rate Limiting** | Per-user-per-model multi-window sliding window rate limiting (429 with key/provider/model/limit in message) |
-| **Rate Limiting** | Rate limits configured via `model_pricing.rate_limits` (e.g. `"10:request:minute,1:request:second"`) |
+| **Rate Limiting** | Rate limits are provider-model scoped (e.g. `"10:request:minute,1:request:second"`) |
 | **Rate Limiting** | Validated on create/update (must match `limit:request:unit` pattern) |
 | **Rate Limiting** | All windows shown in telemetry and logs via `rate_limit_windows` array |
 | **Queue** | Per-provider-model FIFO concurrency queue (1 processes at a time, up to N waiting) |
-| **Queue** | Queue max size configured via `model_pricing.queue_max_size` (default 5, env `DEFAULT_PROVIDER_MODEL_QUEUE_MAX_SIZE`) |
+| **Queue** | Queue max size is provider-model scoped (default 5, env `DEFAULT_PROVIDER_MODEL_QUEUE_MAX_SIZE`) |
 | **Queue** | `queue_full` error type on 429 when at capacity, `queue_timeout` on 504 after 2min wait |
 | **Queue** | GC purges stale pending items after 10 minutes |
 | **Settings** | Advanced telemetry toggle |
 | **Settings** | Preferences persisted to localStorage |
 | **API** | `POST /v1/chat/completions` (non-streaming, Bearer auth) |
+| **API** | OpenAI-compatible `GET /v1/models` and `GET /v1/models/{model}` catalog endpoints |
 | **API** | `POST /api/chat/stream` (SSE streaming, session auth) |
 | **API** | Unrecognized top-level chat parameters pass through to providers; Fairport selection fields are stripped |
-| **API** | The UI-selected model is validated against the selected provider and routed unchanged upstream |
+| **API** | `provider` (name) and `provider_id` are optional; omission routes by model, preferring the immutable default provider |
+| **API** | The requested model is validated against the resolved provider and routed unchanged upstream |
 | **Logging** | JSON request logging to stdout |
 | **Logging** | Request IDs via `crypto.randomUUID()` |
-| **Logging** | UI streaming chat logs include `requested_model` and the resolved upstream `model` in start + end entries |
+| **Logging** | Chat logs include `requested_model` and the resolved upstream `model` in start + end entries |
 | **UI** | User / assistant avatar differentiation |
 | **UI** | ErrorBoundary with reload button |
 | **UI** | Dynamic page title (`"{appName} - {tab}"`) |
 | **UI** | Configurable app name via `APP_NAME` env var |
+
+### API Provider Routing
+
+`POST /v1/chat/completions` remains compatible with standard OpenAI clients: neither `provider` nor `provider_id` is required. When both are omitted, Fairport prefers the accessible immutable default provider when it advertises the requested model, then deterministically selects another accessible provider that does. `provider` selects by provider name and `provider_id` selects by ID; if both are supplied, they must identify the same provider. Duplicate accessible names are rejected in favor of `provider_id`. Explicit unknown selectors return an OpenAI-format `400` error instead of silently using the default. Group-owned API keys can use public model offerings and private offerings owned by that group, but not the key creator's personal or other-group private offerings. Selection fields are never forwarded upstream.
+
+### Model Catalog API
+
+`GET /v1/models` and `GET /v1/models/{model}` use the standard OpenAI model
+response fields (`id`, `object`, `created`, and `owned_by`). The OpenAI-facing
+list is intentionally unpaginated. Optional Fairport `provider` and
+`provider_id` query parameters select a provider without changing the default
+response shape.
+
+| Authentication | Provider selector | Models returned |
+|----------------|-------------------|-----------------|
+| None | None | Public offerings on the immutable default provider |
+| None | `provider` or `provider_id` | Public offerings on that provider |
+| Valid JWT or API key | None | All usable offerings, deduplicated by model ID with the same deterministic provider order as chat |
+| Valid JWT or API key | `provider` or `provider_id` | Usable offerings on that provider |
+
+Supplying invalid credentials returns `401`; it never falls back to the
+anonymous view. Unknown and inaccessible provider selectors share the same
+`404` response. The JWT-only management API is separate:
+`GET /api/models?limit=25&after=...` supports `q`, `provider_id`, `visibility`,
+`source`, `enabled`, and `group_id` filters, while
+`PATCH /api/models/{offering_id}` updates visibility. Provider management keeps
+its legacy array response when no pagination arguments are supplied and returns
+a cursor envelope for `GET /api/providers?limit=...&after=...`. The Chat UI uses
+`GET /api/models?usable=true` with its selected `x-api-key-id`; this view stays
+cursor-paginated and returns only enabled offerings that key may route through.
+The unauthenticated `/api/config` projection omits provider credentials, base
+URLs, private-network approval state, and the operator default URL.
 
 ### Environment Variables
 
@@ -223,7 +277,20 @@ Controlled by `DATABASE_TYPE` env var. All backends share the same schema: `user
 | `yaml`     | File-based      | none                   | `db.yaml`          | `DATABASE_TYPE=yaml`           |
 | `postgres` | External server | Postgres server        | Postgres server    | `DATABASE_TYPE=postgres`, `PGHOST`, `PGUSER`, `PGPASSWORD` |
 
-JSON fields stored as `TEXT` in PGlite, `JSONB` in PostgreSQL. Database and tables created automatically on first connection (PostgreSQL) or first access (PGlite). Optional Postgres vars: `PGPORT` (5432), `PGDATABASE` (fairport-ui).
+Provider-scoped offerings are stored in `providers.offerings` as JSON (`TEXT`
+in PGlite and `JSONB` in PostgreSQL); YAML stores the same structure directly.
+The legacy provider `models` string remains a derived compatibility projection,
+and existing records are migrated at startup without dropping models. Once an
+offering array exists it remains authoritative over that projection, and an
+invalid persisted offering payload stops loading instead of silently rebuilding
+and losing visibility metadata. Usage events snapshot the offering's
+input/output prices so historical totals do not
+change when current settings do. `model_pricing` remains as a legacy migration
+and fallback source. PGlite snapshot replacements run in one transaction so a
+failed insert cannot leave partially emptied tables. Database and tables are
+created automatically on first connection (PostgreSQL) or first access
+(PGlite). Optional Postgres vars:
+`PGPORT` (5432), `PGDATABASE` (fairport-ui).
 
 ## RBAC Schema
 
@@ -342,3 +409,4 @@ usage_events:
 
 ## TODO
 [TODO.md](TODO.md)
+

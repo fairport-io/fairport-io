@@ -62,18 +62,19 @@ test('chat: clear chat with confirmation', async () => {
 });
 
 test('chat: sends the selected non-default provider model', async () => {
-  await sharedPage.route('**/api/config', async route => {
-    const response = await route.fetch();
-    const config = await response.json();
+  await sharedPage.route('**/api/models?*', async route => {
+    const requestUrl = new URL(route.request().url());
+    if (requestUrl.searchParams.get('usable') !== 'true') {
+      await route.continue();
+      return;
+    }
     await route.fulfill({
-      status: response.status(),
+      status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({
-        ...config,
-        providers: config.providers.map((provider: any, index: number) => index === 0
-          ? { ...provider, models: 'llama-guard3-8b,llama3-8b' }
-          : provider),
-      }),
+      body: JSON.stringify({ object: 'list', data: [
+        { id: 'offering-guard', model_id: 'llama-guard3-8b', provider_id: 'provider-id-default', provider_name: 'default', visibility: 'public', source: 'manual', enabled: true, created_at: 1, last_seen_at: null, rate_limits: '10:request:minute', queue_max_size: 5, can_update_visibility: false },
+        { id: 'offering-llama', model_id: 'llama3-8b', provider_id: 'provider-id-default', provider_name: 'default', visibility: 'public', source: 'manual', enabled: true, created_at: 1, last_seen_at: null, rate_limits: '10:request:minute', queue_max_size: 5, can_update_visibility: false },
+      ], has_more: false, next_cursor: null }),
     });
   });
   await sharedPage.reload();
@@ -99,7 +100,67 @@ test('chat: sends the selected non-default provider model', async () => {
   expect(forwardedBody.model).toBe('llama3-8b');
 
   await sharedPage.unroute('**/api/chat/stream');
-  await sharedPage.unroute('**/api/config');
+  await sharedPage.unroute('**/api/models?*');
+  await sharedPage.reload();
+  await sharedPage.waitForURL(/\/chat$/, { timeout: 10000 });
+});
+
+test('chat: lists and routes another user\'s public model offering', async () => {
+  await sharedPage.route('**/api/models?*', async route => {
+    const requestUrl = new URL(route.request().url());
+    if (requestUrl.searchParams.get('usable') !== 'true') {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        object: 'list',
+        data: [{
+          id: 'offering-shared-public',
+          model_id: 'shared-public-model',
+          provider_id: 'provider-private-owner',
+          provider_name: 'Shared Private Provider',
+          visibility: 'public',
+          source: 'manual',
+          enabled: true,
+          created_at: 1,
+          last_seen_at: null,
+          rate_limits: '10:request:minute',
+          queue_max_size: 5,
+          can_update_visibility: false,
+        }],
+        has_more: false,
+        next_cursor: null,
+      }),
+    });
+  });
+  await sharedPage.reload();
+  await sharedPage.waitForURL(/\/chat$/, { timeout: 10000 });
+
+  await expect(sharedPage.getByLabel('Provider').locator('option[value="provider-private-owner"]')).toHaveText('Shared Private Provider');
+  await sharedPage.getByLabel('Provider').selectOption('provider-private-owner');
+  await expect(sharedPage.getByLabel('Model')).toHaveValue('shared-public-model');
+
+  let forwardedBody: any;
+  await sharedPage.route('**/api/chat/stream', async route => {
+    forwardedBody = route.request().postDataJSON();
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: 'data: {"type":"done"}\n\n',
+    });
+  });
+  await sharedPage.locator('textarea').fill('Use the shared model');
+  await sharedPage.getByRole('button', { name: 'Send' }).click();
+  await expect.poll(() => forwardedBody).toMatchObject({
+    provider_id: 'provider-private-owner',
+    model: 'shared-public-model',
+  });
+
+  await sharedPage.unroute('**/api/chat/stream');
+  await sharedPage.unroute('**/api/models?*');
   await sharedPage.reload();
   await sharedPage.waitForURL(/\/chat$/, { timeout: 10000 });
 });
@@ -181,6 +242,7 @@ test('nav: sidebar tabs navigate and update URL', async () => {
     { label: 'Chat', path: '/chat' },
     { label: 'API', path: '/api' },
     { label: 'Providers', path: '/providers' },
+    { label: 'Models', path: '/models' },
     { label: 'Usage', path: '/usage' },
     { label: 'Settings', path: '/settings' },
     { label: 'Deployments', path: '/deployments' },
@@ -431,6 +493,7 @@ test('providers: discovers blank models before add and stops on discovery errors
     base_url: 'https://working.example/v1',
     models: 'auto-a,auto-b',
     models_path: 'models',
+    models_source: 'discovered',
   });
   await expect(sharedPage.getByLabel('Name').first()).toHaveValue('');
 
@@ -448,6 +511,7 @@ test('providers: discovers blank models before add and stops on discovery errors
   await expect.poll(() => createBodies.length).toBe(2);
   expect(discoveryBodies).toHaveLength(2);
   expect(createBodies[1].models).toBe('manual-model');
+  expect(createBodies[1].models_source).toBe('manual');
 
   await expect(sharedPage.getByLabel('Name').first()).toHaveValue('');
   await sharedPage.getByLabel('Name').first().fill('Slow Provider');
@@ -459,10 +523,192 @@ test('providers: discovers blank models before add and stops on discovery errors
   releaseSlowDiscovery?.();
   await expect.poll(() => createBodies.length).toBe(3);
   expect(createBodies[2].models).toBe('typed-during-discovery');
+  expect(createBodies[2].models_source).toBe('manual');
   await expect(sharedPage.getByLabel('Name').first()).toHaveValue('');
 
   await sharedPage.unroute('**/api/providers/test');
   await sharedPage.unroute('**/api/providers');
+});
+
+test('providers: model count opens the Models page with a provider filter', async () => {
+  await cleanModals();
+  const modelRequests: URL[] = [];
+  await sharedPage.route('**/api/providers', async route => {
+    if (route.request().method() !== 'GET') {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([{
+        id: 'provider-link',
+        name: 'Linked Provider',
+        base_url: 'https://linked.example/v1',
+        models: 'linked-a,linked-b',
+        models_path: 'models',
+        visibility: 'private',
+        immutable: false,
+        model_count: 2,
+        rate_limits: '10:request:minute',
+        queue_max_size: 5,
+      }]),
+    });
+  });
+  await sharedPage.route('**/api/models?*', async route => {
+    const requestUrl = new URL(route.request().url());
+    modelRequests.push(requestUrl);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        object: 'list',
+        data: [{
+          id: 'offering-linked',
+          model_id: 'linked-a',
+          provider_id: 'provider-link',
+          provider_name: 'Linked Provider',
+          visibility: 'private',
+          source: 'manual',
+          enabled: true,
+          created_at: 1,
+          last_seen_at: 1,
+          rate_limits: '10:request:minute',
+          queue_max_size: 5,
+          can_update_visibility: false,
+        }],
+        has_more: false,
+        next_cursor: null,
+      }),
+    });
+  });
+
+  await sharedPage.getByRole('button', { name: 'Providers' }).click();
+  await sharedPage.reload();
+  await sharedPage.waitForURL(/\/providers$/);
+  const configuredProviders = sharedPage.getByTestId('configured-providers');
+  await configuredProviders.getByRole('button', { name: '2 models' }).click();
+
+  await expect(sharedPage).toHaveURL(/\/models$/);
+  await expect.poll(() => modelRequests.at(-1)?.searchParams.get('provider_id')).toBe('provider-link');
+  await expect(sharedPage.getByTestId('models-list').getByText('linked-a')).toBeVisible();
+
+  await sharedPage.getByRole('button', { name: 'Providers' }).click();
+  await sharedPage.unroute('**/api/models?*');
+  await sharedPage.unroute('**/api/providers');
+});
+
+test('models: filters, cursor pagination, public confirmation, and mobile layout', async () => {
+  await cleanModals();
+  const modelRequests: URL[] = [];
+  const patchBodies: any[] = [];
+  let offeringVisibility: 'private' | 'public' = 'private';
+  const privateOffering = {
+    id: 'offering-private',
+    model_id: 'llama3-8b',
+    provider_id: 'provider-custom',
+    provider_name: 'Custom Provider',
+    visibility: 'private',
+    source: 'discovered',
+    enabled: true,
+    created_at: 1,
+    last_seen_at: 2,
+    rate_limits: '10:request:minute',
+    queue_max_size: 5,
+    can_update_visibility: true,
+  };
+
+  await sharedPage.route('**/api/models?*', async route => {
+    const requestUrl = new URL(route.request().url());
+    modelRequests.push(requestUrl);
+    const secondPage = requestUrl.searchParams.get('after') === 'cursor-next';
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        object: 'list',
+        data: requestUrl.searchParams.get('visibility') && requestUrl.searchParams.get('visibility') !== offeringVisibility
+          ? []
+          : secondPage
+            ? [{ ...privateOffering, id: 'offering-second', model_id: 'llama3-70b', visibility: offeringVisibility }]
+            : [{ ...privateOffering, visibility: offeringVisibility }],
+        has_more: !secondPage,
+        next_cursor: secondPage ? null : 'cursor-next',
+      }),
+    });
+  });
+  await sharedPage.route('**/api/models/offering-private', async route => {
+    const body = route.request().postDataJSON();
+    patchBodies.push(body);
+    offeringVisibility = body.visibility;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ...privateOffering, visibility: body.visibility }),
+    });
+  });
+
+  await sharedPage.getByRole('button', { name: 'Models', exact: true }).click();
+  await expect(sharedPage).toHaveURL(/\/models$/);
+  await expect(sharedPage.getByText('llama3-8b')).toBeVisible();
+
+  await sharedPage.getByLabel('Filter by provider').selectOption('provider-custom');
+  await sharedPage.getByLabel('Filter by visibility').selectOption('private');
+  await sharedPage.getByPlaceholder('Search models or providers').fill('llama3');
+  await sharedPage.getByRole('button', { name: 'Search', exact: true }).click();
+
+  await expect.poll(() => {
+    const params = modelRequests.at(-1)?.searchParams;
+    return params && {
+      limit: params.get('limit'),
+      provider: params.get('provider_id'),
+      visibility: params.get('visibility'),
+      query: params.get('q'),
+    };
+  }).toEqual({ limit: '25', provider: 'provider-custom', visibility: 'private', query: 'llama3' });
+
+  await sharedPage.getByRole('button', { name: 'Next' }).click();
+  await expect.poll(() => modelRequests.at(-1)?.searchParams.get('after')).toBe('cursor-next');
+  await expect(sharedPage.getByText('llama3-70b')).toBeVisible();
+  await expect(sharedPage.getByText('Page 2')).toBeVisible();
+
+  await sharedPage.getByRole('button', { name: 'Previous' }).click();
+  await expect.poll(() => modelRequests.at(-1)?.searchParams.has('after')).toBe(false);
+  await expect(sharedPage.getByText('llama3-8b')).toBeVisible();
+
+  const visibilitySwitch = sharedPage.getByRole('switch', { name: 'Make llama3-8b public' });
+  await visibilitySwitch.click();
+  const confirmation = sharedPage.getByRole('dialog', { name: 'Make this model public?' });
+  await expect(confirmation).toContainText('consume shared capacity and incur provider costs');
+  await expect(confirmation.getByRole('button', { name: 'Cancel' })).toBeFocused();
+  await sharedPage.keyboard.press('Shift+Tab');
+  await expect(confirmation.getByRole('button', { name: 'Make Public' })).toBeFocused();
+  await sharedPage.keyboard.press('Escape');
+  await expect(confirmation).not.toBeVisible();
+  await expect(visibilitySwitch).toBeFocused();
+  await visibilitySwitch.click();
+  expect(patchBodies).toHaveLength(0);
+  await sharedPage.getByRole('dialog', { name: 'Make this model public?' }).getByRole('button', { name: 'Make Public' }).click();
+  await expect.poll(() => patchBodies).toEqual([{ visibility: 'public' }]);
+  await expect(sharedPage.getByText('llama3-8b')).not.toBeVisible();
+  await sharedPage.getByLabel('Filter by visibility').selectOption('public');
+  await expect(sharedPage.getByRole('switch', { name: 'Make llama3-8b private' })).toHaveAttribute('aria-checked', 'true');
+
+  await sharedPage.setViewportSize({ width: 375, height: 667 });
+  const modelsList = sharedPage.getByTestId('models-list');
+  await expect(modelsList).toBeVisible();
+  const modelsListWidth = await modelsList.evaluate(element => ({
+    client: element.clientWidth,
+    scroll: element.scrollWidth,
+  }));
+  expect(modelsListWidth.scroll).toBeLessThanOrEqual(modelsListWidth.client);
+  await expect(sharedPage.getByLabel('Filter by provider')).toBeVisible();
+  await expect(sharedPage.getByRole('switch', { name: 'Make llama3-8b private' })).toBeVisible();
+  await sharedPage.setViewportSize({ width: 1280, height: 720 });
+
+  await sharedPage.getByRole('button', { name: 'Providers' }).click();
+  await sharedPage.unroute('**/api/models/offering-private');
+  await sharedPage.unroute('**/api/models?*');
 });
 
 test.skip('providers: creates a new provider', async () => {

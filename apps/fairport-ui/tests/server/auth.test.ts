@@ -148,6 +148,22 @@ describe('POST /api/auth/logout', () => {
   });
 });
 
+describe('GET /api/config', () => {
+  it('does not expose provider credentials or offering metadata', async () => {
+    const res = await request(app).get('/api/config');
+
+    expect(res.status).toBe(200);
+    expect(res.body).not.toHaveProperty('default_provider_api_key');
+    expect(res.body).not.toHaveProperty('default_provider_url');
+    expect(res.body.providers.every((provider: any) =>
+      provider.api_key === undefined &&
+      provider.offerings === undefined &&
+      provider.base_url === undefined &&
+      provider.allow_private === undefined
+    )).toBe(true);
+  });
+});
+
 describe('DELETE /api/auth/account', () => {
   let token: string;
 

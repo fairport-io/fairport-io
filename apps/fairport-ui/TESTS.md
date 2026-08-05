@@ -76,6 +76,7 @@ Definitions
 | ✅    | pw    | /chat    | -    | clear chat with confirmation — app.spec.ts |
 | ✅    | pw    | /chat    | POST | Extra Parameters validate typed JSON, persist across refresh, forward with chat requests, clear with history, and fit a mobile viewport — app.spec.ts |
 | ✅    | pw    | /chat    | POST | selecting a provider's non-default model sends that exact model in the streaming request — app.spec.ts |
+| ✅    | pw    | /chat    | POST | another user's public offering appears in the key-scoped selectors and routes with its provider ID — app.spec.ts |
 | ✅    | pw    | /chat    | -    | sidebar tabs navigate and update URL — app.spec.ts |
 | ✅    | pw    | /chat    | -    | active tab persists across refresh — app.spec.ts |
 | -     |       | /chat    | -    | chat history stored per-user in localStorage |
@@ -90,6 +91,7 @@ Definitions
 | ✅    | vi    | /api/chat/stream  | POST   | selected provider model is routed upstream, logged as requested/resolved on accepted and rate-limited requests, and recorded in usage — chat-stream.test.ts |
 | ✅    | vi    | /api/chat/stream  | POST   | model not configured for the selected provider is rejected before upstream routing — chat-stream.test.ts |
 | ✅    | vi    | /api/chat/stream  | POST   | unknown provider ID is rejected instead of falling back to another provider — chat-stream.test.ts |
+| ✅    | vi    | /api/chat/stream  | POST   | inaccessible and unknown provider IDs return the same response — chat-stream.test.ts |
 | -     |       | /api/chat/stream  | POST   | thinking/reasoning content streamed separately |
 | -     |       | /api/chat/stream  | POST   | TTFT tracked on first token |
 | -     |       | /api/chat/stream  | POST   | input token limit enforced (400) |
@@ -101,10 +103,31 @@ Definitions
 | State | Suite | Endpoint                | Method | Test |
 |-------|-------|-------------------------|--------|------|
 | -     |       | /v1/chat/completions    | POST   | requires Bearer API key auth |
-| ✅    | vi    | /v1/chat/completions    | POST   | passes through nested parameters, strips provider selectors, and controls model/messages/stream — chat-stream.test.ts |
+| ✅    | vi    | /v1/chat/completions    | POST   | selects by provider name, passes through nested parameters, strips provider selectors, and controls model/messages/stream — chat-stream.test.ts |
+| ✅    | vi    | /v1/chat/completions    | POST   | omitted provider selector uses the immutable default when it supports the requested model — chat-stream.test.ts |
+| ✅    | vi    | /v1/chat/completions    | POST   | omitted provider selector selects another accessible provider that supports the requested model — chat-stream.test.ts |
+| ✅    | vi    | /v1/chat/completions    | POST   | another authenticated user can automatically route through a published offering — chat-stream.test.ts |
+| ✅    | vi    | /v1/chat/completions    | POST   | explicitly unknown provider name or ID is rejected instead of falling back — chat-stream.test.ts |
+| ✅    | vi    | /v1/chat/completions    | POST   | group-owned API keys cannot route through the key creator's personal private models — chat-stream.test.ts |
+| ✅    | vi    | /v1/chat/completions    | POST   | automatic routing remains optional with multiple matches; ambiguous names and conflicting selectors are rejected — chat-stream.test.ts |
+| ✅    | vi    | /v1/chat/completions    | POST   | inaccessible and unknown provider selectors return the same OpenAI error — chat-stream.test.ts |
+| ✅    | vi    | /v1/chat/completions    | POST   | provider DNS failures return OpenAI-format 502 errors with provider/model log context — chat-stream.test.ts |
 | -     |       | /v1/chat/completions    | POST   | non-streaming only (stream=true returns 400) |
 | -     |       | /v1/chat/completions    | POST   | returns OpenAI-format response |
 | -     |       | /v1/chat/completions    | POST   | usage event recorded |
+
+## GET /v1/models
+
+| State | Suite | Endpoint | Method | Test |
+|-------|-------|----------|--------|------|
+| ✅ | vi | /v1/models | GET | anonymous unfiltered catalog returns only immutable-default offerings — models.test.ts |
+| ✅ | vi | /v1/models | GET | anonymous provider filter returns only that provider's public offerings — models.test.ts |
+| ✅ | vi | /v1/models | GET | authenticated unfiltered catalog returns every usable offering and deterministically deduplicates model IDs — models.test.ts |
+| ✅ | vi | /v1/models | GET | authenticated provider filter includes usable private offerings — models.test.ts |
+| ✅ | vi | /v1/models | GET | invalid credentials return 401 instead of falling back to anonymous — models.test.ts |
+| ✅ | vi | /v1/models | GET | inaccessible and unknown private providers are not distinguishable — models.test.ts |
+| ✅ | vi | /v1/models | GET | authorized visibility changes appear immediately in the anonymous filtered catalog — models.test.ts |
+| ✅ | vi | /v1/models/:model | GET | retrieve follows list access/deduplication and returns OpenAI model fields or model_not_found — models.test.ts |
 
 ## /api
 | State | Suite | Endpoint    | Method | Test |
@@ -115,8 +138,10 @@ Definitions
 | ❌    | pw    | /api        | -    | enforces max 5 keys (flaky, skipped) |
 | ✅    | pw    | /providers  | POST | model discovery sends URL/path/key, fills blank models, and preserves manual overrides — app.spec.ts |
 | ✅    | pw    | /providers  | POST | blank-model add discovers first, stops on failure, and accepts manual or in-flight overrides — app.spec.ts |
+| ✅    | pw    | /providers  | -    | model count opens a provider-filtered Models page — app.spec.ts |
 | ❌    | pw    | /providers  | -    | creates a new provider (flaky, skipped) |
 | ✅    | pw    | /providers  | -    | immutable provider is shown as managed without edit/delete actions — app.spec.ts |
+| ✅    | pw    | /models     | -    | navigation, search/provider/visibility filters, cursor pagination, filtered-row reconciliation, keyboard-contained publish confirmation/PATCH, and 375px layout — app.spec.ts |
 
 ## /api/providers
 | State | Suite | Endpoint            | Method | Test |
@@ -131,8 +156,10 @@ Definitions
 | ✅    | vi    | /api/providers      | POST   | loopback, mapped IPv6 loopback, and link-local/metadata destinations remain forbidden for Global Admin — providers.test.ts |
 | -     |       | /api/providers      | POST   | duplicate name per group returns 409 |
 | -     |       | /api/providers      | POST   | API key encrypted at rest |
-| ✅    | vi    | /api/providers      | GET    | returns public + user-owned providers with models_path — providers.test.ts |
-| ✅    | vi    | /api/providers      | GET    | rate_limits + queue_max_size from model_pricing — providers.test.ts |
+| ✅    | vi    | /api/providers      | GET    | compatibility request remains an array and includes models_path/model_count — providers.test.ts |
+| ✅    | vi    | /api/providers      | GET    | explicit limit/after request returns stable cursor pagination — providers.test.ts |
+| ✅    | vi    | /api/providers      | GET    | nonmember group filter returns 403 — providers.test.ts |
+| ✅    | vi    | /api/providers      | GET    | rate_limits + queue_max_size come from the provider's first offering — providers.test.ts |
 | -     |       | /api/providers      | GET    | returns group providers when group_id provided |
 | ✅    | vi    | /api/providers/:id  | PUT    | owner can update provider fields and models_path — providers.test.ts |
 | ✅    | vi    | /api/providers/:id  | PUT    | unchanged admin-approved private URL does not block a group member's other edits — providers.test.ts |
@@ -145,6 +172,16 @@ Definitions
 | ✅    | vi    | /api/providers/:id  | DELETE | immutable provider returns 403 — providers.test.ts |
 | -     |       | /api/providers/:id  | DELETE | group member can delete group provider |
 | -     |       | /api/providers/:id  | DELETE | non-owner returns 403 |
+
+## /api/models
+
+| State | Suite | Endpoint | Method | Test |
+|-------|-------|----------|--------|------|
+| ✅ | vi | /api/models | GET | JWT-only management authentication — models.test.ts |
+| ✅ | vi | /api/models | GET | cursor pagination plus provider, search, and visibility filters — models.test.ts |
+| ✅ | vi | /api/models | GET | public offerings are visible across owners while another owner's private offerings remain hidden — models.test.ts |
+| ✅ | vi | /api/models | GET | `usable=true` follows the JWT request's selected API-key scope and returns no rows without a selected key — models.test.ts |
+| ✅ | vi | /api/models/:id | PATCH | owner may change visibility; nonowner is denied and API-key auth is rejected — models.test.ts |
 
 ## POST /api/providers/test
 
@@ -166,7 +203,7 @@ Definitions
 | State | Suite | Endpoint    | Method | Test |
 |-------|-------|-------------|--------|------|
 | -     |       | /api/usage  | GET    | returns usage events for user's keys |
-| -     |       | /api/usage  | GET    | joins with model_pricing for cost calculation |
+| -     |       | /api/usage  | GET    | uses usage-event price snapshots with offering/legacy fallback |
 | -     |       | /api/usage  | GET    | group-scoped when group_id provided |
 | -     |       | /api/usage  | GET    | sorted newest first |
 
@@ -199,8 +236,7 @@ Definitions
 ## /api/config
 | State | Suite | Endpoint     | Method | Test |
 |-------|-------|--------------|--------|------|
-| -     |       | /api/config  | GET    | returns app config + providers without api_keys |
-| -     |       | /api/config  | GET    | provider api_key stripped from response |
+| ✅    | vi    | /api/config  | GET    | returns public projections without credentials, offering metadata, provider base URLs/private approval, or the default provider URL — auth.test.ts |
 
 ## /api/groups
 | State | Suite | Endpoint                          | Method | Test |
@@ -228,6 +264,16 @@ Definitions
 | -     |       | /api/admin/users/:userId/providers/:id | DELETE | admin-only, provider must belong to user |
 | -     |       | /api/admin/users/:userId/groups/:slug  | DELETE | admin-only, remove from group |
 | -     |       | /api/admin/users/:userId/usage         | GET    | admin-only, returns usage for user's keys |
+
+## Database adapters
+
+| State | Suite | Endpoint | Method | Test |
+|-------|-------|----------|--------|------|
+| ✅ | vi | PGliteAdapter | - | provider offering JSON and usage price snapshots survive save/load — pglite.test.ts |
+| ✅ | vi | PGliteAdapter | - | failed snapshot replacement rolls back instead of leaving partially emptied tables — pglite.test.ts |
+| ✅ | vi | PGliteAdapter | - | malformed provider offering JSON fails closed instead of rebuilding from legacy strings — pglite.test.ts |
+| ✅ | vi | YamlAdapter | - | malformed offering shapes fail closed without replacing the source file — yaml.test.ts |
+| ✅ | vi | startup migration | - | stored offering enabled/visibility/source/timestamps remain authoritative over a drifted legacy model string — models.test.ts |
 
 ## RateLimiter
 | State | Suite | Endpoint     | Method | Test |
