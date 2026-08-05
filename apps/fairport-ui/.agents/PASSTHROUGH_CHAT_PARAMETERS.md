@@ -81,4 +81,4 @@ Pass chat-completion parameters through Fairport to the configured upstream prov
 - Added strict boolean `stream: true` support to `/v1/chat/completions`; provider SSE bytes are relayed unchanged while a parsed copy captures usage and output for accounting.
 - Streaming finalization is idempotent so `[DONE]`, upstream end/error, and client disconnect release the provider queue exactly once.
 - Added regression coverage for split SSE chunks, passthrough fields, provider-selector filtering, upstream usage accounting, and immediate queue reuse.
-- Final verification passes: `make build`; `make test` with 80 Vitest tests and 22 Playwright tests passed, with 5 intentionally skipped.
+- Post-merge verification against current `main` passes: `make build`; `make test` with 136 Vitest tests and 28 Playwright tests passed, with 5 intentionally skipped.

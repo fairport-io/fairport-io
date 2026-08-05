@@ -15,6 +15,10 @@ docker run -it --rm -p 8000:8000 \
   ghcr.io/fairport-io/apps/fairport-ui:0.0.1
 ```
 
+### Subpath Hosting
+
+Set `BASE_PATH=/chat` to serve the same image at `/chat/`, including UI routes, assets, `/chat/api/*`, and `/chat/v1/chat/completions`. The ingress must forward `/chat` and `/chat/*` unchanged. If `APP_URL` is set, include the prefix (for example `https://example.com/chat`).
+
 ## Highlights
 
 ### Auth
@@ -40,6 +44,39 @@ Generate API Keys and use the app's /api endpoint to proxy requests between diff
 Manage custom providers.
 
 <img width="1016" height="576" alt="image" src="https://github.com/user-attachments/assets/959fddd4-0545-44d0-882f-4363aaebdf3c" />
+
+The add form can run an optional three-second model-discovery test, limited to
+ten tests per user per minute. It sends `GET` to `models` beneath the API base
+URL by default (for example, `/v1/models`), or to a configured same-origin
+`models_path`. Relative paths append to the API base; a leading `/` selects an
+exact path on the same origin. URLs, traversal, queries, and fragments are
+rejected. The test accepts an optional API key as a Bearer credential. A test
+succeeds only for a 2xx OpenAI-compatible `{"data":[{"id":"..."}]}` response;
+responses are capped at 1 MiB. Discovered models populate an empty Models field,
+while manually entered models remain available as an explicit override. Adding
+with an empty Models field runs discovery first. Provider URLs are
+DNS-resolved before saving and again when used. Global Admins may approve LAN,
+private, and Kubernetes destinations; loopback, link-local, and metadata targets
+remain unavailable to UI-created providers. Only Global Admins may change an
+approved private-network provider's URL. Immutable `DEFAULT_PROVIDER_URL`
+providers remain operator-controlled.
+
+### Models
+
+The Models page presents models as provider-scoped offerings, so the same model
+ID can exist on more than one provider without sharing visibility, pricing,
+rate limits, or queue settings. Offerings record whether they were entered
+manually or discovered, and providers link directly to their filtered model
+list. The table supports search, provider and visibility filters, cursor
+pagination, and a responsive mobile layout.
+
+Provider owners, owning-group members, and Global Admins can make an offering
+public. The confirmation calls out the capacity and cost impact: public means
+every authenticated user with matching RBAC permissions may route requests
+through that offering. It does not enable anonymous inference. Immutable
+default-provider offerings remain public and operator-managed. The Chat
+provider/model selectors are built from the offerings usable by the selected
+API key, including public offerings on another user's private provider.
 
 ### Usage
 
@@ -69,6 +106,7 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | Category | Feature |
 |----------|---------|
 | **Auth** | Login / Signup with JWT tokens (no session cookies) |
+| **Auth** | Optional case-insensitive signup allowlists for exact emails or domains |
 | **Auth** | Logout |
 | **Auth** | Bearer token API key auth for OpenAI-compatible endpoint |
 | **Auth** | bcrypt-hashed API keys with prefix lookup |
@@ -78,10 +116,15 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | **Keys** | One-time full key reveal modal on creation with copy button |
 | **Keys** | Active key selector in header bar (persisted to localStorage) |
 | **Keys** | curl / Python code samples with copy button |
-| **Providers** | CRUD for AI providers (name, base URL, models, rate limits, queue max size, optional API key) |
+| **Providers** | CRUD for AI providers (name, base URL, models path, models, rate limits, queue max size, optional API key) |
+| **Providers** | Optional authenticated model discovery before adding a provider |
+| **Providers** | Global Admin approval for LAN/private and Kubernetes endpoints; other users are limited to public destinations |
 | **Providers** | Immutable default provider (cannot be edited / deleted) |
-| **Providers** | Inline table editing with rate limits column |
+| **Providers** | Responsive, paginated provider cards with full-width names/URLs, model counts, and inline editing |
 | **Providers** | Active provider selector in header bar |
+| **Models** | Provider-scoped manual/discovered model catalog with stable offering IDs |
+| **Models** | Search plus provider/visibility filters and cursor-paginated responsive table |
+| **Models** | Authorized public/private controls with an explicit capacity/cost warning |
 | **Chat** | SSE streaming chat |
 | **Chat** | Per-chat Extra Parameters modal with typed JSON values, refresh persistence, and reserved-field protection |
 | **Chat** | Client-side persistence (browser localStorage) via `CHAT_PERSISTENCE=client` — no server-side message storage |
@@ -117,29 +160,64 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | **Mobile** | Slide-over sidebar drawer on screens < 768px |
 | **Mobile** | Fixed top bar with hamburger menu |
 | **Mobile** | Responsive header dropdowns |
-| **Sidebar** | 6 tabs: Chat, API, Providers, Usage, Deployments, Settings |
+| **Sidebar** | 7 tabs: Chat, API, Providers, Models, Usage, Deployments, Settings |
 | **Sidebar** | Active tab highlighting |
 | **Settings** | Delete account with email confirmation |
 | **Rate Limiting** | Per-user-per-model multi-window sliding window rate limiting (429 with key/provider/model/limit in message) |
-| **Rate Limiting** | Rate limits configured via `model_pricing.rate_limits` (e.g. `"10:request:minute,1:request:second"`) |
+| **Rate Limiting** | Rate limits are provider-model scoped (e.g. `"10:request:minute,1:request:second"`) |
 | **Rate Limiting** | Validated on create/update (must match `limit:request:unit` pattern) |
 | **Rate Limiting** | All windows shown in telemetry and logs via `rate_limit_windows` array |
 | **Queue** | Per-provider-model FIFO concurrency queue (1 processes at a time, up to N waiting) |
-| **Queue** | Queue max size configured via `model_pricing.queue_max_size` (default 5, env `DEFAULT_PROVIDER_MODEL_QUEUE_MAX_SIZE`) |
+| **Queue** | Queue max size is provider-model scoped (default 5, env `DEFAULT_PROVIDER_MODEL_QUEUE_MAX_SIZE`) |
 | **Queue** | `queue_full` error type on 429 when at capacity, `queue_timeout` on 504 after 2min wait |
 | **Queue** | GC purges stale pending items after 10 minutes |
 | **Settings** | Advanced telemetry toggle |
 | **Settings** | Preferences persisted to localStorage |
 | **API** | `POST /v1/chat/completions` (OpenAI-compatible streaming and non-streaming, Bearer auth) |
+| **API** | OpenAI-compatible `GET /v1/models` and `GET /v1/models/{model}` catalog endpoints |
 | **API** | `POST /api/chat/stream` (SSE streaming, session auth) |
 | **API** | Unrecognized top-level chat parameters pass through to providers; Fairport selection fields are stripped |
+| **API** | `provider` (name) and `provider_id` are optional; omission routes by model, preferring the immutable default provider |
+| **API** | The requested model is validated against the resolved provider and routed unchanged upstream |
 | **Logging** | JSON request logging to stdout |
 | **Logging** | Request IDs via `crypto.randomUUID()` |
-| **Logging** | Chat endpoints get start + end log entries |
+| **Logging** | Chat logs include `requested_model` and the resolved upstream `model` in start + end entries |
 | **UI** | User / assistant avatar differentiation |
 | **UI** | ErrorBoundary with reload button |
 | **UI** | Dynamic page title (`"{appName} - {tab}"`) |
 | **UI** | Configurable app name via `APP_NAME` env var |
+
+### API Provider Routing
+
+`POST /v1/chat/completions` remains compatible with standard OpenAI clients: neither `provider` nor `provider_id` is required. When both are omitted, Fairport prefers the accessible immutable default provider when it advertises the requested model, then deterministically selects another accessible provider that does. `provider` selects by provider name and `provider_id` selects by ID; if both are supplied, they must identify the same provider. Duplicate accessible names are rejected in favor of `provider_id`. Explicit unknown selectors return an OpenAI-format `400` error instead of silently using the default. Group-owned API keys can use public model offerings and private offerings owned by that group, but not the key creator's personal or other-group private offerings. Selection fields are never forwarded upstream.
+
+### Model Catalog API
+
+`GET /v1/models` and `GET /v1/models/{model}` use the standard OpenAI model
+response fields (`id`, `object`, `created`, and `owned_by`). The OpenAI-facing
+list is intentionally unpaginated. Optional Fairport `provider` and
+`provider_id` query parameters select a provider without changing the default
+response shape.
+
+| Authentication | Provider selector | Models returned |
+|----------------|-------------------|-----------------|
+| None | None | Public offerings on the immutable default provider |
+| None | `provider` or `provider_id` | Public offerings on that provider |
+| Valid JWT or API key | None | All usable offerings, deduplicated by model ID with the same deterministic provider order as chat |
+| Valid JWT or API key | `provider` or `provider_id` | Usable offerings on that provider |
+
+Supplying invalid credentials returns `401`; it never falls back to the
+anonymous view. Unknown and inaccessible provider selectors share the same
+`404` response. The JWT-only management API is separate:
+`GET /api/models?limit=25&after=...` supports `q`, `provider_id`, `visibility`,
+`source`, `enabled`, and `group_id` filters, while
+`PATCH /api/models/{offering_id}` updates visibility. Provider management keeps
+its legacy array response when no pagination arguments are supplied and returns
+a cursor envelope for `GET /api/providers?limit=...&after=...`. The Chat UI uses
+`GET /api/models?usable=true` with its selected `x-api-key-id`; this view stays
+cursor-paginated and returns only enabled offerings that key may route through.
+The unauthenticated `/api/config` projection omits provider credentials, base
+URLs, private-network approval state, and the operator default URL.
 
 ### Environment Variables
 
@@ -147,6 +225,7 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 |----------|---------|-------------|
 | `PORT` | `3000` | HTTP server port |
 | `APP_NAME` | `Chat` | Application name (title, header, login page) |
+| `BASE_PATH` | `` | Optional runtime URL prefix such as `/chat`; no image rebuild or ingress rewrite required |
 | `SECRET_KEY` | auto-generated | Generate this for production!  Provider key encryption key (set for persistence across restarts; rotating destroys encrypted provider keys) |
 | `JWT_SECRET` | auto-generated | JWT signing secret — set for production persistence (session-less auth) |
 | `JWT_EXPIRY` | `24h` | JWT token expiry duration (e.g. `1h`, `7d`) |
@@ -176,8 +255,10 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | `OAUTH_AUTH0_CLIENT_SECRET` | `` | Auth0 OAuth client secret |
 | `OAUTH_AUTH0_METADATA_URL` | `` | Auth0 OIDC Discovery URL |
 | `CHAT_PERSISTENCE` | `client` | Message storage mode: `client` stores in browser localStorage, `server` stores in `db.yaml` |
-| `APP_URL` | `` | Public URL of the app (used for OAuth redirect URIs; auto-detected if behind proxy) |
+| `APP_URL` | `` | Full public URL of the app, including `BASE_PATH`; used for OAuth redirects and auto-detected when unset |
 | `SIGNUPS_ENABLED` | `true` | Set to `false` to disable new user registration (login unaffected) |
+| `SIGNUP_ALLOWED_EMAILS` | `` | Comma-separated exact email addresses allowed to create accounts; combined with `SIGNUP_ALLOWED_DOMAINS` using OR semantics |
+| `SIGNUP_ALLOWED_DOMAINS` | `` | Comma-separated exact email domains allowed to create accounts; subdomains must be listed separately |
 | `BOOTSTRAP_ADMIN_EMAILS` | `` | Comma-separated emails granted Global Admin role on login/signup (full `*` permissions) |
 | `TRUST_PROXY` | `` | Set to `1` (or a number/string) to enable reverse-proxy IP trust for correct client IP detection |
 | `AUTH_RATE_LIMIT_MAX` | `10` | Max failed auth attempts per IP before rate limiting kicks in |
@@ -189,6 +270,8 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | `PGUSER` | `` | PostgreSQL user (required when `DATABASE_TYPE=postgres`) |
 | `PGPASSWORD` | `` | PostgreSQL password (required when `DATABASE_TYPE=postgres`) |
 
+Signup allowlist matching is case-insensitive and applies to password and OAuth account creation. When both allowlists are empty, signup remains unrestricted. Existing users can still log in after the allowlists change. Password signup does not verify ownership of the submitted email address; use an identity provider that returns a verified email when the allowlist is an access-control boundary.
+
 ## Database
 
 Controlled by `DATABASE_TYPE` env var. All backends share the same schema: `users`, `api_keys`, `roles`, `groups_table`, `models`, `messages`, `providers`, `model_pricing`, `usage_events`.
@@ -199,7 +282,20 @@ Controlled by `DATABASE_TYPE` env var. All backends share the same schema: `user
 | `yaml`     | File-based      | none                   | `db.yaml`          | `DATABASE_TYPE=yaml`           |
 | `postgres` | External server | Postgres server        | Postgres server    | `DATABASE_TYPE=postgres`, `PGHOST`, `PGUSER`, `PGPASSWORD` |
 
-JSON fields stored as `TEXT` in PGlite, `JSONB` in PostgreSQL. Database and tables created automatically on first connection (PostgreSQL) or first access (PGlite). Optional Postgres vars: `PGPORT` (5432), `PGDATABASE` (fairport-ui).
+Provider-scoped offerings are stored in `providers.offerings` as JSON (`TEXT`
+in PGlite and `JSONB` in PostgreSQL); YAML stores the same structure directly.
+The legacy provider `models` string remains a derived compatibility projection,
+and existing records are migrated at startup without dropping models. Once an
+offering array exists it remains authoritative over that projection, and an
+invalid persisted offering payload stops loading instead of silently rebuilding
+and losing visibility metadata. Usage events snapshot the offering's
+input/output prices so historical totals do not
+change when current settings do. `model_pricing` remains as a legacy migration
+and fallback source. PGlite snapshot replacements run in one transaction so a
+failed insert cannot leave partially emptied tables. Database and tables are
+created automatically on first connection (PostgreSQL) or first access
+(PGlite). Optional Postgres vars:
+`PGPORT` (5432), `PGDATABASE` (fairport-ui).
 
 ## RBAC Schema
 
@@ -275,20 +371,24 @@ providers:
     name: "default"
     base_url: "http://localhost:1234/v1"
     models: "default"
+    models_path: "models"
     api_key: "sk-xxxx"
     owner_id: null
     visibility: "public"
     immutable: true
+    allow_private: true
 
   - id: "provider-id-123e4567-e89b-12d3-a456-426614174008"
-    name: "Ollama Local"
-    base_url: "http://localhost:11434/v1"
+    name: "Example Provider"
+    base_url: "https://api.example.com/v1"
     models: "llama3.2,mistral,nomic-embed-text"
+    models_path: "models"
     api_key: ""
     owner_id: "user-id-123e4567-e89b-12d3-a456-426614174000"
     group_id: null
     visibility: "private"
     immutable: false
+    allow_private: false
 
 model_pricing:
   - model_id: "model-id-default"

@@ -148,6 +148,22 @@ describe('POST /api/auth/logout', () => {
   });
 });
 
+describe('GET /api/config', () => {
+  it('does not expose provider credentials or offering metadata', async () => {
+    const res = await request(app).get('/api/config');
+
+    expect(res.status).toBe(200);
+    expect(res.body).not.toHaveProperty('default_provider_api_key');
+    expect(res.body).not.toHaveProperty('default_provider_url');
+    expect(res.body.providers.every((provider: any) =>
+      provider.api_key === undefined &&
+      provider.offerings === undefined &&
+      provider.base_url === undefined &&
+      provider.allow_private === undefined
+    )).toBe(true);
+  });
+});
+
 describe('DELETE /api/auth/account', () => {
   let token: string;
 
@@ -199,5 +215,84 @@ describe('SIGNUPS_ENABLED=false', () => {
       .get('/api/config');
     expect(res.status).toBe(200);
     expect(res.body.signups_enabled).toBe(false);
+  });
+});
+
+describe('signup allowlist', () => {
+  let allowlistedApp: any;
+
+  beforeAll(async () => {
+    process.env.SIGNUP_ALLOWED_EMAILS = ' Exact@Example.com,other@example.org ';
+    process.env.SIGNUP_ALLOWED_DOMAINS = ' allowed.com,Example.NET ';
+    vi.resetModules();
+    const mod = await import('../../server');
+    allowlistedApp = mod.app;
+  });
+
+  afterAll(() => {
+    delete process.env.SIGNUP_ALLOWED_EMAILS;
+    delete process.env.SIGNUP_ALLOWED_DOMAINS;
+  });
+
+  it('allows and normalizes an exact email match', async () => {
+    const res = await request(allowlistedApp)
+      .post('/api/auth/signup')
+      .send({ username: ' EXACT@EXAMPLE.COM ', password: 'password123' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.user.name).toBe('exact@example.com');
+  });
+
+  it('allows a case-insensitive exact domain match', async () => {
+    const res = await request(allowlistedApp)
+      .post('/api/auth/signup')
+      .send({ username: 'member@ALLOWED.COM', password: 'password123' });
+
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects an email outside both allowlists', async () => {
+    const res = await request(allowlistedApp)
+      .post('/api/auth/signup')
+      .send({ username: 'blocked@example.com', password: 'password123' });
+
+    expect(res.status).toBe(403);
+    expect(res.body.detail).toBe('Signup is not allowed for this email address.');
+  });
+
+  it('does not treat subdomains as an exact domain match', async () => {
+    const res = await request(allowlistedApp)
+      .post('/api/auth/signup')
+      .send({ username: 'member@sub.allowed.com', password: 'password123' });
+
+    expect(res.status).toBe(403);
+  });
+
+  it('does not affect login for an existing user', async () => {
+    const res = await request(allowlistedApp)
+      .post('/api/auth/login')
+      .send({ username: 'exact@example.com', password: 'password123' });
+
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('BASE_PATH', () => {
+  let prefixedApp: any;
+
+  beforeAll(async () => {
+    vi.stubEnv('BASE_PATH', '/chat/');
+    vi.resetModules();
+    prefixedApp = (await import('../../server')).app;
+  });
+
+  afterAll(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('serves APIs below the prefix and redirects its bare path', async () => {
+    await request(prefixedApp).get('/chat/api/auth/session').expect(200, { logged_in: false });
+    await request(prefixedApp).get('/chat').expect(308).expect('Location', '/chat/');
   });
 });

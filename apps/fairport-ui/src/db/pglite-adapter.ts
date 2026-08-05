@@ -38,9 +38,12 @@ const SCHEMA: Record<string, string> = {
   providers: `CREATE TABLE IF NOT EXISTS providers (
     id TEXT PRIMARY KEY, name TEXT NOT NULL,
     base_url TEXT NOT NULL, models TEXT NOT NULL DEFAULT 'default',
+    models_path TEXT NOT NULL DEFAULT 'models',
     api_key TEXT NOT NULL DEFAULT '', owner_id TEXT, group_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private',
-    immutable INTEGER NOT NULL DEFAULT 0
+    immutable INTEGER NOT NULL DEFAULT 0,
+    allow_private INTEGER NOT NULL DEFAULT 0,
+    offerings TEXT NOT NULL DEFAULT '[]'
   )`,
   model_pricing: `CREATE TABLE IF NOT EXISTS model_pricing (
     model_id TEXT PRIMARY KEY,
@@ -56,7 +59,9 @@ const SCHEMA: Record<string, string> = {
     timestamp INTEGER NOT NULL,
     input_tokens INTEGER NOT NULL DEFAULT 0,
     output_tokens INTEGER NOT NULL DEFAULT 0,
-    source TEXT NOT NULL DEFAULT 'UI'
+    source TEXT NOT NULL DEFAULT 'UI',
+    input_price_per_1m_tokens REAL,
+    output_price_per_1m_tokens REAL
   )`,
 };
 
@@ -94,7 +99,18 @@ export class PGliteAdapter implements DatabaseAdapter {
         result[table] = rows.map((r: any) => {
           const obj: any = {};
           for (const key of Object.keys(r)) {
-            obj[key] = (key === 'immutable') ? (r[key] === 1 || r[key] === true) : r[key];
+            if (key === 'immutable' || key === 'allow_private') {
+              obj[key] = r[key] === 1 || r[key] === true;
+            } else if (key === 'offerings' && typeof r[key] === 'string') {
+              try {
+                obj[key] = JSON.parse(r[key]);
+                if (!Array.isArray(obj[key])) throw new Error('expected an array');
+              } catch (error: any) {
+                throw new Error(`Invalid providers.offerings JSON for ${r.id}: ${error.message}`);
+              }
+            } else {
+              obj[key] = r[key];
+            }
           }
           return obj;
         });
@@ -108,9 +124,13 @@ export class PGliteAdapter implements DatabaseAdapter {
   async save(data: DbData): Promise<void> {
     await this.ensureClient();
     await this.ensureTables();
+    await this.client.query('BEGIN');
     try {
       for (const table of TABLES) {
-        const records = (data as any)[table] || [];
+        const sourceRecords = (data as any)[table] || [];
+        const records = table === 'providers'
+          ? sourceRecords.map((record: any) => ({ ...record, models_path: record.models_path || 'models', offerings: record.offerings || [] }))
+          : sourceRecords;
         const sqlTable = TABLE_MAP[table];
         await this.client.query(`DELETE FROM "${sqlTable}"`);
 
@@ -125,7 +145,9 @@ export class PGliteAdapter implements DatabaseAdapter {
           await this.client.query(stmt, vals);
         }
       }
+      await this.client.query('COMMIT');
     } catch (err) {
+      await this.client.query('ROLLBACK');
       throw err;
     }
   }
@@ -159,6 +181,11 @@ export class PGliteAdapter implements DatabaseAdapter {
     for (const ddl of Object.values(SCHEMA)) {
       await this.client.query(ddl);
     }
+    await this.client.query('ALTER TABLE providers ADD COLUMN IF NOT EXISTS allow_private INTEGER NOT NULL DEFAULT 0');
+    await this.client.query("ALTER TABLE providers ADD COLUMN IF NOT EXISTS models_path TEXT NOT NULL DEFAULT 'models'");
+    await this.client.query("ALTER TABLE providers ADD COLUMN IF NOT EXISTS offerings TEXT NOT NULL DEFAULT '[]'");
+    await this.client.query('ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS input_price_per_1m_tokens REAL');
+    await this.client.query('ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS output_price_per_1m_tokens REAL');
     this.initialized = true;
   }
 

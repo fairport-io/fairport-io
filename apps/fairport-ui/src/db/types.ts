@@ -30,16 +30,33 @@ export interface Group {
   members: { ids: string[]; role_ids: string[] }[];
 }
 
+export interface ProviderOffering {
+  id: string;
+  model_id: string;
+  visibility: 'private' | 'public';
+  source: 'manual' | 'discovered';
+  enabled: boolean;
+  created_at: number;
+  last_seen_at: number | null;
+  input_cost_per_1m_tokens: number;
+  output_cost_per_1m_tokens: number;
+  rate_limits: string;
+  queue_max_size: number;
+}
+
 export interface Provider {
   id: string;
   name: string;
   base_url: string;
   models: string;
+  models_path?: string;
   api_key: string;
   owner_id: string | null;
   group_id: string | null;
   visibility: string;
   immutable?: boolean;
+  allow_private?: boolean;
+  offerings?: ProviderOffering[];
 }
 
 export interface Model {
@@ -69,6 +86,8 @@ export interface UsageEvent {
   input_tokens: number;
   output_tokens: number;
   source: string;
+  input_price_per_1m_tokens?: number;
+  output_price_per_1m_tokens?: number;
 }
 
 export interface Message {
