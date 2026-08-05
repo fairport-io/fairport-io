@@ -50,3 +50,4 @@ fairport-ui:
     - name: DATABASE_TYPE
       value: "pglite"
 ```
+
