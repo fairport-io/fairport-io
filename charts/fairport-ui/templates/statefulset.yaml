@@ -19,6 +19,14 @@ spec:
         {{- toYaml $fairportUi.labels | nindent 8 }}
     spec:
       serviceAccountName: {{ $fairportUi.serviceAccount.name }}
+      initContainers:
+      - name: init-pglite-data
+        image: {{ $fairportUi.image }}
+        imagePullPolicy: {{ $fairportUi.imagePullPolicy }}
+        securityContext:
+          runAsUser: 0
+        command: ["/bin/sh", "-c", "mkdir -p /app/pglite-data && chown -R node:node /app/pglite-data"]
+        volumeMounts: {{ $fairportUi.volumeMounts | toJson }}
       containers:
       - name: fairport-ui
         image: {{ $fairportUi.image }}
