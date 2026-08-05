@@ -108,6 +108,7 @@ Definitions
 | State | Suite | Endpoint                | Method | Test |
 |-------|-------|-------------------------|--------|------|
 | -     |       | /v1/chat/completions    | POST   | requires Bearer API key auth |
+| ✅    | vi    | /v1/chat/completions    | POST   | relays split upstream SSE for stream=true, records usage, and releases the queue — chat-stream.test.ts |
 | ✅    | vi    | /v1/chat/completions    | POST   | selects by provider name, passes through nested parameters, strips provider selectors, and controls model/messages/stream — chat-stream.test.ts |
 | ✅    | vi    | /v1/chat/completions    | POST   | omitted provider selector uses the immutable default when it supports the requested model — chat-stream.test.ts |
 | ✅    | vi    | /v1/chat/completions    | POST   | omitted provider selector selects another accessible provider that supports the requested model — chat-stream.test.ts |
@@ -117,9 +118,8 @@ Definitions
 | ✅    | vi    | /v1/chat/completions    | POST   | automatic routing remains optional with multiple matches; ambiguous names and conflicting selectors are rejected — chat-stream.test.ts |
 | ✅    | vi    | /v1/chat/completions    | POST   | inaccessible and unknown provider selectors return the same OpenAI error — chat-stream.test.ts |
 | ✅    | vi    | /v1/chat/completions    | POST   | provider DNS failures return OpenAI-format 502 errors with provider/model log context — chat-stream.test.ts |
-| -     |       | /v1/chat/completions    | POST   | non-streaming only (stream=true returns 400) |
 | -     |       | /v1/chat/completions    | POST   | returns OpenAI-format response |
-| -     |       | /v1/chat/completions    | POST   | usage event recorded |
+| ✅    | vi    | /v1/chat/completions    | POST   | usage event recorded for streaming response — chat-stream.test.ts |
 
 ## GET /v1/models
 

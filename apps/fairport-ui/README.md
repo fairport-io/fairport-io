@@ -173,7 +173,7 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | **Queue** | GC purges stale pending items after 10 minutes |
 | **Settings** | Advanced telemetry toggle |
 | **Settings** | Preferences persisted to localStorage |
-| **API** | `POST /v1/chat/completions` (non-streaming, Bearer auth) |
+| **API** | `POST /v1/chat/completions` (OpenAI-compatible streaming and non-streaming, Bearer auth) |
 | **API** | OpenAI-compatible `GET /v1/models` and `GET /v1/models/{model}` catalog endpoints |
 | **API** | `POST /api/chat/stream` (SSE streaming, session auth) |
 | **API** | Unrecognized top-level chat parameters pass through to providers; Fairport selection fields are stripped |
@@ -414,4 +414,3 @@ usage_events:
 
 ## TODO
 [TODO.md](TODO.md)
-

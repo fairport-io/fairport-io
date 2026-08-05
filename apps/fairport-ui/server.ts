@@ -2849,7 +2849,7 @@ app.post('/api/chat/stream', async (req, res) => {
   }
 });
 
-// OpenAI-compatible non-streaming chat completions endpoint
+// OpenAI-compatible streaming and non-streaming chat completions endpoint
 app.post('/v1/chat/completions', async (req: Request, res: Response) => {
   const { user, db, apiKey } = await getAuthContext(req);
   if (!user) return res.status(401).json({ error: { message: "Auth required", type: "authentication_error", code: "invalid_api_key" }});
@@ -2999,11 +2999,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
     return res.status(429).json({ error: { message: `Too many concurrent requests for ${user.name} using model ${modelId} from provider ${provider.name}`, type: "queue_full" }});
   }
 
-  if (stream === true) {
-    requestQueue.dequeue(queueKey);
-    return res.status(400).json({ error: { message: "Streaming is not supported on this endpoint. Use /api/chat/stream for streaming.", type: "invalid_request_error" }});
-  }
-
+  const isStreaming = stream === true;
   const inputTokens = estimateTokens(messages);
   if (inputTokens > MAX_INPUT_TOKENS) {
     requestQueue.dequeue(queueKey);
@@ -3019,11 +3015,143 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
       req.body,
       modelId,
       messages,
-      false
+      isStreaming
     ), {
       ...providerRequestConfig(providerTarget),
-      headers: { 'Authorization': `Bearer ${resolveProviderApiKey(provider)}` }
+      headers: { 'Authorization': `Bearer ${resolveProviderApiKey(provider)}` },
+      ...(isStreaming ? { responseType: 'stream' } : {})
     });
+
+    if (isStreaming) {
+      const upstream = response.data;
+      const sseDecoder = new StringDecoder('utf8');
+      let sseBuffer = '';
+      let assistantContent = '';
+      let upstreamInputTokens: number | undefined;
+      let upstreamOutputTokens: number | undefined;
+      let streamFinished = false;
+
+      const finishStream = async (succeeded: boolean, error?: Error) => {
+        if (streamFinished) return;
+        streamFinished = true;
+        requestQueue.dequeue(queueKey);
+
+        const recordedInputTokens = upstreamInputTokens ?? inputTokens;
+        const outputTokens = upstreamOutputTokens ?? Math.ceil(assistantContent.length / 4);
+        const duration = Date.now() - startTime;
+        const inputCost = (recordedInputTokens / 1_000_000) * inputPricePerM;
+        const outputCost = (outputTokens / 1_000_000) * outputPricePerM;
+
+        res.locals.log = {
+          ...res.locals.log,
+          input_tokens: recordedInputTokens,
+          output_tokens: outputTokens,
+          tokens_per_second: duration > 0 ? parseFloat((outputTokens / (duration / 1000)).toFixed(2)) : 0,
+          input_price_per_1m: inputPricePerM,
+          output_price_per_1m: outputPricePerM,
+          input_cost: Math.round(inputCost * 1_000_000_000) / 1_000_000_000,
+          output_cost: Math.round(outputCost * 1_000_000_000) / 1_000_000_000,
+          total_cost: Math.round((inputCost + outputCost) * 1_000_000_000) / 1_000_000_000,
+          rate_limit_windows: rateLimitResult.windows,
+          queue: { size: requestQueue.getQueueSize(queueKey), limit: queueMaxSize },
+          ...(error ? { error: error.message } : {})
+        };
+
+        if (succeeded) {
+          db.usage_events.push({
+            id: `usage-event-id-${crypto.randomUUID()}`,
+            api_key_id: apiKey.id,
+            model_id: modelId,
+            provider_id: provider.id,
+            user_id: user.id,
+            group_id: apiKey.group_id || null,
+            timestamp: Math.floor(Date.now() / 1000),
+            input_tokens: recordedInputTokens,
+            output_tokens: outputTokens,
+            source: 'API',
+            input_price_per_1m_tokens: inputPricePerM,
+            output_price_per_1m_tokens: outputPricePerM,
+          });
+          try {
+            await saveDb(db);
+          } catch (saveError: any) {
+            res.locals.log = { ...res.locals.log, error: saveError.message };
+          }
+        }
+
+        console.log(JSON.stringify({
+          timestamp: new Date().toISOString(),
+          source_ip: req.ip || req.socket.remoteAddress,
+          target_url: req.originalUrl,
+          target_path: req.path,
+          method: req.method,
+          status_code: res.statusCode,
+          user_agent: req.get('User-Agent') || '-',
+          api_key: req.headers['x-api-key-id'] || '-',
+          refer: req.get('Referer') || '-',
+          duration_ms: duration,
+          ...res.locals.log,
+        }));
+
+        if (error && !res.writableEnded && !res.destroyed) {
+          res.write(`data: ${JSON.stringify({ error: { message: error.message, type: 'internal_error', code: 'internal_error' } })}\n\n`);
+        }
+        if (!res.writableEnded && !res.destroyed) res.end();
+      };
+
+      const processSseLine = (line: string) => {
+        if (!line.startsWith('data:')) return false;
+        const rawData = line.slice(5).trim();
+        if (rawData === '[DONE]') return true;
+
+        try {
+          const json = JSON.parse(rawData);
+          const delta = json.choices?.[0]?.delta || {};
+          assistantContent += delta.content || delta.reasoning_content || delta.thinking || delta.reasoning || '';
+          if (typeof json.usage?.prompt_tokens === 'number') upstreamInputTokens = json.usage.prompt_tokens;
+          if (typeof json.usage?.completion_tokens === 'number') upstreamOutputTokens = json.usage.completion_tokens;
+        } catch (e) {}
+        return false;
+      };
+
+      res.status(response.status || 200);
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders?.();
+
+      upstream.on('data', (chunk: Buffer | string) => {
+        if (streamFinished) return;
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        if (!res.writableEnded && !res.destroyed) res.write(buffer);
+
+        sseBuffer += sseDecoder.write(buffer);
+        const lines = sseBuffer.split(/\r?\n/);
+        sseBuffer = lines.pop() || '';
+        if (lines.some(processSseLine)) {
+          void finishStream(true);
+          upstream.destroy();
+        }
+      });
+
+      upstream.once('end', () => {
+        if (streamFinished) return;
+        sseBuffer += sseDecoder.end();
+        if (sseBuffer.trim()) processSseLine(sseBuffer);
+        void finishStream(true);
+      });
+
+      upstream.once('error', (error: Error) => {
+        void finishStream(false, error);
+      });
+
+      res.once('close', () => {
+        if (streamFinished) return;
+        void finishStream(false, new Error('Client disconnected'));
+        upstream.destroy();
+      });
+      return;
+    }
 
     const assistantMessage = response.data.choices[0].message;
     const duration = Date.now() - startTime;

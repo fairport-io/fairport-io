@@ -7,6 +7,7 @@ process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'test-jwt-secret';
 process.env.SECRET_KEY = 'test-secret-key';
 process.env.PORT = '0';
+process.env.DEFAULT_PROVIDER_MODEL_RATE_LIMITS = '100:request:second';
 const apiUsername = `chat-api-${Date.now()}@example.com`;
 process.env.BOOTSTRAP_ADMIN_EMAILS = apiUsername;
 
@@ -258,6 +259,88 @@ describe('POST /api/chat/stream', () => {
 });
 
 describe('POST /v1/chat/completions', () => {
+  it('relays provider SSE for stream true and releases the queue', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const messages = [{ role: 'user', content: 'hi' }];
+    const expectedStream = [
+      'data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n',
+      'data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2}}\n\n',
+      'data: [DONE]\n\n',
+    ].join('');
+
+    axiosPost.mockImplementationOnce(() => {
+      const stream = new PassThrough();
+      setTimeout(() => {
+        stream.write('data: {"choices":[{"delta":{"content":"Hel');
+        stream.write('lo"}}]}\n\ndata: {"choices":[],"usage":{"prompt_tokens":3,');
+        stream.write('"completion_tokens":2}}\n\ndata: [DO');
+        stream.end('NE]\n\n');
+      }, 0);
+      return Promise.resolve({ data: stream, status: 200 });
+    });
+
+    const res = await request(app)
+      .post('/v1/chat/completions')
+      .set({ Authorization: `Bearer ${apiKey}` })
+      .send({
+        messages,
+        model: apiProviderModel,
+        provider: apiProviderName,
+        provider_id: apiProviderId,
+        max_length: 1024,
+        stream_options: { include_usage: true },
+        stream: true,
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/^text\/event-stream/);
+    expect(res.text).toBe(expectedStream);
+    const streamCall = axiosPost.mock.calls[axiosPost.mock.calls.length - 1];
+    expect(streamCall[1]).toEqual({
+      max_length: 1024,
+      stream_options: { include_usage: true },
+      model: apiProviderModel,
+      messages,
+      stream: true,
+    });
+    expect(streamCall[2]).toEqual(expect.objectContaining({ responseType: 'stream' }));
+
+    const streamLogs = logSpy.mock.calls
+      .map(([entry]) => {
+        try { return JSON.parse(entry); } catch { return null; }
+      })
+      .filter(entry => entry?.target_path === '/v1/chat/completions' && entry?.provider_id === apiProviderId);
+    expect(streamLogs).toHaveLength(2);
+    expect(streamLogs.every(entry =>
+      entry.requested_model === apiProviderModel && entry.model === apiProviderModel
+    )).toBe(true);
+    expect(streamLogs.some(entry => typeof entry.duration_ms === 'number')).toBe(true);
+    expect(streamLogs.some(entry => entry.duration_ms === undefined)).toBe(true);
+
+    const usage = await request(app)
+      .get('/api/usage')
+      .set({ Authorization: `Bearer ${apiKey}` });
+    expect(usage.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({ model_id: apiProviderModel, input_tokens: 3, output_tokens: 2, source: 'API' }),
+    ]));
+
+    axiosPost.mockResolvedValueOnce({
+      data: { choices: [{ message: { role: 'assistant', content: 'Queue released' } }] },
+    });
+    const followUp = await request(app)
+      .post('/v1/chat/completions')
+      .set({ Authorization: `Bearer ${apiKey}` })
+      .send({
+        messages,
+        model: apiProviderModel,
+        provider: apiProviderName,
+        provider_id: apiProviderId,
+        stream: false,
+      })
+      .timeout({ response: 1000, deadline: 2000 });
+    expect(followUp.status).toBe(200);
+  });
+
   it('selects a provider by name and does not forward Fairport-only fields', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const messages = [{ role: 'user', content: 'hi' }];
