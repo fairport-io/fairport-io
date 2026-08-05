@@ -3,7 +3,7 @@ import { YamlAdapter } from './yaml-adapter';
 import { PGliteAdapter } from './pglite-adapter';
 import { PostgresAdapter } from './postgres-adapter';
 
-export type { DatabaseAdapter, DatabaseType, DbData };
+export type { DatabaseAdapter, DatabaseType, DbData, ProviderOffering } from './types';
 
 export function createDatabase(type: DatabaseType, dataDir?: string): DatabaseAdapter {
   switch (type) {

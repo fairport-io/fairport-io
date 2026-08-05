@@ -15,6 +15,13 @@
 
 ----Agents update below this line, do not remove this line----
 
+## Subpath Support (2026-07-22)
+
+- `BASE_PATH` optionally mounts the unchanged runtime image below a URL prefix such as `/chat`; unset preserves root hosting.
+- Vite emits relative assets, the frontend prefixes navigation/API/OAuth URLs, and Express strips the prefix before its existing route stack.
+- The ingress forwards the prefix unchanged. `APP_URL`, when set, includes the prefix; otherwise OAuth URLs are derived from the request origin and `BASE_PATH`.
+- `tests/server/auth.test.ts` covers prefixed API routing and the bare-path redirect.
+
 ## PostgreSQL/PGlite Support (2026-05-28)
 
 Added `DATABASE_TYPE` env var to support multiple database backends:
@@ -79,6 +86,39 @@ The following security issues were identified and fixed:
 ### New endpoints
 - `POST /api/auth/oauth/exchange` — exchanges a short-lived one-time OAuth code for a JWT
 
+## Provider Connection Policy (2026-08-03)
+
+- `POST /api/providers/test` performs authenticated, optional three-second model discovery with `GET` against the resolved models endpoint, without following redirects and limited to ten attempts per user per minute. Success requires a 2xx OpenAI-compatible `data[].id` response capped at 1 MiB.
+- `providers.models_path` defaults to `models`; relative paths append to the API base and leading `/` paths select an exact path on the same origin. URL-like, traversing, queried, and fragmented overrides are rejected.
+- Provider hostnames are DNS-resolved and pinned for outbound requests. Global Admins may approve LAN/private/Kubernetes destinations; UI-created loopback, link-local, and metadata destinations remain forbidden.
+- Provider URL changes are limited to ten per user per minute. Only Global Admins may change an approved private-network provider's URL; other group-member edits remain available when that URL is unchanged.
+- Server-owned `providers.allow_private` records that approval and is migrated automatically for PGlite/PostgreSQL. Immutable `DEFAULT_PROVIDER_URL` providers retain their operator-controlled localhost exception.
+
+## Provider Model Catalog (2026-08-04)
+
+- `providers.offerings` is the provider-model source of truth: stable ID, manual/discovered source, enabled state, visibility, timestamps, pricing, rate limits, and queue size. The legacy `providers.models` string is a derived compatibility projection; startup migration preserves existing values and keeps immutable-default offerings public.
+- `GET /v1/models` and `GET /v1/models/:model` return only OpenAI model fields and stay unpaginated. Optional `provider`/`provider_id` selectors use the same deterministic access and deduplication order as chat; invalid credentials are rejected instead of receiving the anonymous view.
+- Anonymous unfiltered catalog requests see the immutable default; anonymous filtered requests see public offerings. Authenticated requests see offerings usable by their JWT/API key, either across providers or on the selected provider.
+- Public offerings are usable by all authenticated users whose RBAC permits the provider/model; they do not enable anonymous inference. Owners, owning-group members, and Global Admins can change visibility, while immutable-default offerings stay public.
+- JWT-only `GET /api/models` provides cursor pagination and filters; `PATCH /api/models/:id` changes visibility. Explicitly paginated `GET /api/providers` returns a cursor envelope, while the no-pagination compatibility response remains an array.
+- `GET /api/models?usable=true` uses the JWT request's selected `x-api-key-id` and returns only enabled offerings that key may route through; Chat paginates through this view so published offerings on otherwise-private providers are selectable.
+- The UI has separate Providers and Models pages. Providers shows paginated cards/model-count links; Models shows a responsive cursor-paginated table, reconciles active filters after visibility changes, and uses a keyboard-contained capacity/cost confirmation before publishing.
+- Provider/key loads are request-versioned across identity changes. Chat reconciles deleted providers against its usable-offering view instead of retaining a stale `provider_id`.
+- Usage events snapshot input/output prices so historical costs survive later offering edits. `model_pricing` is retained only as migration/fallback data.
+- PGlite snapshot replacement is transactional. PGlite/PostgreSQL reject malformed offering JSON, and YAML rejects malformed collection/offering shapes instead of returning an empty database that startup could overwrite.
+- `/api/config` is anonymous-safe: provider/API credentials, offering metadata, base URLs, private-network approval state, and `default_provider_url` are omitted.
+
+## Chat Parameter Passthrough (2026-07-15)
+
+Both `/api/chat/stream` and `/v1/chat/completions` now preserve unrecognized top-level request fields when forwarding to the selected provider.
+
+- `provider` and `provider_id` remain Fairport-only and are not forwarded.
+- Fairport applies its resolved `model`, `messages`, and `stream` after passthrough fields so those values remain authoritative.
+- The Chat page has a responsive `Extra Parameters` modal. Values are parsed as JSON, saved per user with the current chat, and included in subsequent requests.
+- Clear History and logout remove the saved parameters; reserved Fairport fields, duplicate keys, empty keys, and invalid JSON are rejected.
+- `tests/server/chat-stream.test.ts` covers nested passthrough values and server-controlled fields for both endpoints.
+- `tests/e2e/app.spec.ts` covers modal validation, typed payloads, refresh persistence, Clear History cleanup, and the mobile layout.
+
 ## Chat Stream Robustness (2026-07-13)
 
 Hardened `/api/chat/stream` upstream SSE handling:
@@ -98,7 +138,7 @@ Hardened `/api/chat/stream` upstream SSE handling:
 ## Tech Stack
 - **Backend**: Node.js + Express + TypeScript (compiled to `dist/server.js`)
 - **Frontend**: React + TypeScript + Vite
-- **Database**: YAML file (`db.yaml`) with flat schema (users, api_keys, roles, groups, models, messages, providers, model_pricing, usage_events)
+- **Database**: PGlite by default, with YAML/PostgreSQL adapters for the same collections and provider-offering data
 - **Authentication**: JWT tokens + Bearer token API keys
 
 ## Files
@@ -110,17 +150,18 @@ Hardened `/api/chat/stream` upstream SSE handling:
 
 ### `server.ts`
 - Main Express server (API + static file serving)
-- Endpoints: `/api/auth/*`, `/api/keys`, `/api/providers`, `/api/groups`, `/api/groups/:slug`, `/api/groups/:slug/members`, `/api/admin/users`, `/api/admin/users/:userId`, `/api/admin/users/:userId/keys/:keyId`, `/api/admin/users/:userId/providers/:providerId`, `/api/admin/users/:userId/groups/:groupSlug`, `/api/admin/users/:userId/usage`, `/api/chat/stream`, `/v1/chat/completions`, `/api/messages`, `/api/config`, `/api/usage`
+- Endpoints: `/api/auth/*`, `/api/keys`, `/api/providers`, `/api/models`, `/api/groups`, `/api/groups/:slug`, `/api/groups/:slug/members`, `/api/admin/users`, `/api/admin/users/:userId`, `/api/admin/users/:userId/keys/:keyId`, `/api/admin/users/:userId/providers/:providerId`, `/api/admin/users/:userId/groups/:groupSlug`, `/api/admin/users/:userId/usage`, `/api/chat/stream`, `/v1/chat/completions`, `/v1/models`, `/api/messages`, `/api/config`, `/api/usage`
 
 ### `src/App.tsx`
 - Main React component with full UI
-- Tabs: Chat, API, Providers, Usage, Settings, Deployments
-- Active tabs sync to the URL bar via `history.replaceState` (`/chat`, `/api`, `/providers`, `/usage`, `/settings`, `/deployments`); unauthenticated users see `/login`
+- Tabs: Chat, API, Providers, Models, Usage, Settings, Deployments
+- Active tabs sync to the URL bar via `history.replaceState` (`/chat`, `/api`, `/providers`, `/models`, `/usage`, `/settings`, `/deployments`); unauthenticated users see `/login`
 - Identity dropdown in header bar: shows "User: <email>" and "Group: <name>" per member group; switches which resources (keys, providers, usage) are loaded
 - Deployments tab: client-side only (no API), with New Deployment form (10 fields in 2-column grid: Name, Image dropdown, Model, Location dropdown (local only), GPU Type dropdown, Num GPUs, Min/Max Replicas, Host CPUs, Host Memory) and Deployments list table (Name, Min, Max, Current Replicas, Edit/Delete). Edit opens modal overlay with same fields pre-populated. Max 5 deployments.
 - Group management in Settings (admin only): group list, add member by email, search members, view/delete user resources (keys, providers), delete users
 - KeyManager component for API key CRUD
 - ProviderManager component for provider CRUD (immutable default provider cannot be edited/deleted)
+- ModelManager component for model filters, cursor pagination, and visibility management
 - MessageRow for chat messages with thinking/telemetry display
 - Active key and provider selection via dropdown in header bar (not in Keys/Providers tab)
 - Keys tab shows registered keys but clicking them doesn't select/activate them
@@ -149,14 +190,21 @@ Hardened `/api/chat/stream` upstream SSE handling:
 - `DELETE /api/keys/:id` - Delete key (owner or group member)
 
 ### Providers
-- `GET /api/providers` - List providers (accepts `?group_id=` to scope to a group)
+- `GET /api/providers` - List providers (accepts `?group_id=`; explicit `limit`/`after` enables cursor pagination, otherwise returns the compatibility array)
+- `POST /api/providers/test` - Test an unsaved provider's models endpoint and return discovered model IDs without creating it
 - `POST /api/providers` - Create provider (accepts `group_id` in body for group-owned providers)
 - `PUT /api/providers/:id` - Update provider (owner or group member; cannot update immutable providers)
 - `DELETE /api/providers/:id` - Delete provider (owner or group member; cannot delete immutable providers)
 
+### Models
+- `GET /v1/models` and `GET /v1/models/:model` - OpenAI-compatible public/authenticated catalog
+- `GET /api/models` - JWT-only offering management list with cursor pagination and filters
+- `PATCH /api/models/:id` - Owner, owning-group member, or Global Admin visibility update
+
 ### Group Resources
 - API keys and providers have an optional `group_id` field; null = user-owned, string = group-owned
 - Group members can create/delete keys and providers for groups they belong to
+- Group-owned API keys may route through public model offerings and private offerings in their own group, not the creator's personal or other-group private offerings
 - `isGroupMember(user, db, groupId)` helper checks membership (including wildcard `*`)
 - `GET /api/usage` accepts `?group_id=` to scope usage to a group's keys
 
@@ -188,11 +236,11 @@ Hardened `/api/chat/stream` upstream SSE handling:
 - Returns `rate_limit_windows` array in SSE done event, API response, and logs (replaces deprecated `rate_limit_remaining/limit/unit` fields)
 - `rateLimitWindows` shown in frontend telemetry under `RL:` 
 - `DEFAULT_PROVIDER_MODEL_RATE_LIMITS` env var (default `"10:request:minute,1:request:second"`)
-- Provider form includes rate limits field; upserts into `model_pricing` on save
+- Rate limits are stored per provider offering; provider edits apply the entered value to that provider's selected models
 
 ### Request Queue
 - Per-provider-model in-memory FIFO concurrency queue (`RequestQueue` class in server.ts)
-- `queue_max_size` stored in `model_pricing`, configurable per-provider, default 5
+- `queue_max_size` is stored per provider offering, default 5
 - Enforced in both chat endpoints: 1 request processes at a time, up to `maxSize-1` wait in queue
 - Returns `queue_full` error type when queue at capacity (429)
 - Per-request timeout of 2 minutes in the queue returns 504 Gateway Timeout (`queue_timeout`)
@@ -200,10 +248,10 @@ Hardened `/api/chat/stream` upstream SSE handling:
 - GC runs every 60s: purges pending items older than 10min (resolves with false → 504), removes empty queues
 - `getQueueSize(key)` returns `processing + pending.length` for total in-flight/waiting count
 - `DEFAULT_PROVIDER_MODEL_QUEUE_MAX_SIZE` env var (default `5`)
-- Provider form includes "Queue Max Size" field (number input); upserts into `model_pricing` on save
+- Provider form includes a provider-model "Queue Max Size" field (number input)
 
 ### Usage
-- `GET /api/usage` - List usage events for user's keys, joined with model_pricing for cost calculation
+- `GET /api/usage` - List usage events for user's keys using recorded price snapshots, with offering/legacy fallback for old rows
 
 ## Important Patterns
 
@@ -236,8 +284,10 @@ Hardened `/api/chat/stream` upstream SSE handling:
 - Request IDs generated with `crypto.randomUUID()` and passed through to frontend
 - General middleware logs every request (duration, status, etc.)
 - Chat endpoints (`/api/chat/stream`, `/v1/chat/completions`) get 2 logs: a start log (request_id, provider_id, source, pricing) and an end log (tokens, costs, timing)
+- Chat logs add `requested_model` for the normalized client selection (or null when omitted) and `model` for the resolved value routed upstream and used for limits, queueing, and usage
 - Extra fields attached to middleware log via `res.locals.log` for endpoints that use `res.json()` (like `/v1/chat/completions`)
 - SSE endpoint (`/api/chat/stream`) logs explicitly since middleware doesn't fire for SSE
+- `/v1/chat/completions` accepts optional `provider` (name) and `provider_id` selectors; omission prefers a matching immutable default, then a deterministic accessible provider
 
 ## OAuth / OIDC SSO
 

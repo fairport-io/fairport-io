@@ -148,6 +148,22 @@ describe('POST /api/auth/logout', () => {
   });
 });
 
+describe('GET /api/config', () => {
+  it('does not expose provider credentials or offering metadata', async () => {
+    const res = await request(app).get('/api/config');
+
+    expect(res.status).toBe(200);
+    expect(res.body).not.toHaveProperty('default_provider_api_key');
+    expect(res.body).not.toHaveProperty('default_provider_url');
+    expect(res.body.providers.every((provider: any) =>
+      provider.api_key === undefined &&
+      provider.offerings === undefined &&
+      provider.base_url === undefined &&
+      provider.allow_private === undefined
+    )).toBe(true);
+  });
+});
+
 describe('DELETE /api/auth/account', () => {
   let token: string;
 
@@ -258,5 +274,25 @@ describe('signup allowlist', () => {
       .send({ username: 'exact@example.com', password: 'password123' });
 
     expect(res.status).toBe(200);
+  });
+});
+
+describe('BASE_PATH', () => {
+  let prefixedApp: any;
+
+  beforeAll(async () => {
+    vi.stubEnv('BASE_PATH', '/chat/');
+    vi.resetModules();
+    prefixedApp = (await import('../../server')).app;
+  });
+
+  afterAll(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('serves APIs below the prefix and redirects its bare path', async () => {
+    await request(prefixedApp).get('/chat/api/auth/session').expect(200, { logged_in: false });
+    await request(prefixedApp).get('/chat').expect(308).expect('Location', '/chat/');
   });
 });

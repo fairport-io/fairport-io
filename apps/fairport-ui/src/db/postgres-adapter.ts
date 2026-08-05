@@ -53,11 +53,14 @@ const SCHEMA: Record<string, string> = {
     name TEXT NOT NULL,
     base_url TEXT NOT NULL,
     models TEXT NOT NULL DEFAULT 'default',
+    models_path TEXT NOT NULL DEFAULT 'models',
     api_key TEXT NOT NULL DEFAULT '',
     owner_id TEXT,
     group_id TEXT,
     visibility TEXT NOT NULL DEFAULT 'private',
-    immutable INTEGER NOT NULL DEFAULT 0
+    immutable INTEGER NOT NULL DEFAULT 0,
+    allow_private INTEGER NOT NULL DEFAULT 0,
+    offerings JSONB NOT NULL DEFAULT '[]'::jsonb
   )`,
   model_pricing: `CREATE TABLE IF NOT EXISTS model_pricing (
     model_id TEXT PRIMARY KEY,
@@ -76,7 +79,9 @@ const SCHEMA: Record<string, string> = {
     timestamp INTEGER NOT NULL,
     input_tokens INTEGER NOT NULL DEFAULT 0,
     output_tokens INTEGER NOT NULL DEFAULT 0,
-    source TEXT NOT NULL DEFAULT 'UI'
+    source TEXT NOT NULL DEFAULT 'UI',
+    input_price_per_1m_tokens REAL,
+    output_price_per_1m_tokens REAL
   )`,
 };
 
@@ -101,7 +106,12 @@ function toPgValue(val: any): any {
 
 function fromPgValue(table: string, col: string, val: any): any {
   if (val === null || val === undefined) return null;
-  if (table === 'providers' && col === 'immutable') return val === 1 || val === true;
+  if (table === 'providers' && (col === 'immutable' || col === 'allow_private')) return val === 1 || val === true;
+  if (table === 'providers' && col === 'offerings') {
+    const parsed = typeof val === 'string' ? JSON.parse(val) : val;
+    if (!Array.isArray(parsed)) throw new Error('Invalid providers.offerings JSON: expected an array');
+    return parsed;
+  }
   return val;
 }
 
@@ -140,7 +150,10 @@ export class PostgresAdapter implements DatabaseAdapter {
     try {
       await client.query('BEGIN');
       for (const table of TABLES) {
-        const records = (data as any)[table] || [];
+        const sourceRecords = (data as any)[table] || [];
+        const records = table === 'providers'
+          ? sourceRecords.map((record: any) => ({ ...record, models_path: record.models_path || 'models', offerings: record.offerings || [] }))
+          : sourceRecords;
         const sqlTable = TABLE_MAP[table];
         await client.query(`DELETE FROM "${sqlTable}"`);
 
@@ -252,6 +265,11 @@ export class PostgresAdapter implements DatabaseAdapter {
       for (const ddl of Object.values(SCHEMA)) {
         await client.query(ddl);
       }
+      await client.query('ALTER TABLE providers ADD COLUMN IF NOT EXISTS allow_private INTEGER NOT NULL DEFAULT 0');
+      await client.query("ALTER TABLE providers ADD COLUMN IF NOT EXISTS models_path TEXT NOT NULL DEFAULT 'models'");
+      await client.query("ALTER TABLE providers ADD COLUMN IF NOT EXISTS offerings JSONB NOT NULL DEFAULT '[]'::jsonb");
+      await client.query('ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS input_price_per_1m_tokens REAL');
+      await client.query('ALTER TABLE usage_events ADD COLUMN IF NOT EXISTS output_price_per_1m_tokens REAL');
     } finally {
       client.release();
     }
