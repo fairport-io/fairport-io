@@ -1,13 +1,14 @@
 {{- $fairportUi := index .Values "fairport-ui" -}}
 {{- if $fairportUi.enabled }}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: fairport-ui
   namespace: {{ .Release.Namespace }}
   labels:
     {{- toYaml $fairportUi.labels | nindent 4 }}
 spec:
+  serviceName: fairport-ui-headless
   replicas: {{ $fairportUi.replicaCount }}
   selector:
     matchLabels:
@@ -32,7 +33,10 @@ spec:
           value: {{ .value | quote }}
         {{- end }}
         resources: {{ $fairportUi.resources | toJson }}
+        volumeMounts: {{ $fairportUi.volumeMounts | toJson }}
+      volumes: {{ $fairportUi.volumes | toJson }}
       nodeSelector: {{ $fairportUi.nodeSelector | toJson }}
       tolerations: {{ $fairportUi.tolerations | toJson }}
       affinity: {{ $fairportUi.affinity | toJson }}
+  volumeClaimTemplates: {{ $fairportUi.volumeClaimTemplates | toJson }}
 {{- end }}

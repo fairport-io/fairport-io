@@ -16,4 +16,21 @@ spec:
     name: http
   selector:
     {{- toYaml $fairportUi.labels | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fairport-ui-headless
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- toYaml $fairportUi.labels | nindent 4 }}
+spec:
+  clusterIP: None
+  ports:
+  - port: {{ $fairportUi.service.port }}
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    {{- toYaml $fairportUi.labels | nindent 4 }}
 {{- end }}

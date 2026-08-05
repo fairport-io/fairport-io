@@ -25,6 +25,23 @@ fairport-ui:
             pathType: Prefix
     tls: []
   resources: {}
+  volumes: []
+  #  - name: pglite-data
+  #    hostPath:
+  #      path: /var/lib/fairport-ui/pglite-data
+  #      type: DirectoryOrCreate
+  volumeMounts: []
+  #  - name: pglite-data
+  #    mountPath: /app/pglite-data
+  volumeClaimTemplates: []
+  #  - metadata:
+  #      name: pglite-data
+  #    spec:
+  #      accessModes:
+  #        - ReadWriteOnce
+  #      resources:
+  #        requests:
+  #          storage: 1Gi
   nodeSelector: {}
   tolerations: []
   affinity: {}
