@@ -17,7 +17,7 @@ docker run -it --rm -p 8000:8000 \
 
 ### Subpath Hosting
 
-Set `BASE_PATH=/chat` to serve the same image at `/chat/`, including UI routes, assets, `/chat/api/*`, and `/chat/v1/chat/completions`. The ingress must forward `/chat` and `/chat/*` unchanged. If `APP_URL` is set, include the prefix (for example `https://example.com/chat`).
+Set `BASE_PATH=/chat` to serve the same image at `/chat/`, including UI routes, assets, `/chat/api/*`, and `/chat/v1/*`. The ingress must forward `/chat` and `/chat/*` unchanged. If `APP_URL` is set, include the prefix (for example `https://example.com/chat`).
 
 ## Highlights
 
@@ -174,6 +174,7 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | **Settings** | Advanced telemetry toggle |
 | **Settings** | Preferences persisted to localStorage |
 | **API** | `POST /v1/chat/completions` (OpenAI-compatible streaming and non-streaming, Bearer auth) |
+| **API** | `POST /v1/completions` (legacy OpenAI prompt completions, streaming and non-streaming, Bearer auth) |
 | **API** | OpenAI-compatible `GET /v1/models` and `GET /v1/models/{model}` catalog endpoints |
 | **API** | `POST /api/chat/stream` (SSE streaming, session auth) |
 | **API** | Unrecognized top-level chat parameters pass through to providers; Fairport selection fields are stripped |
@@ -189,7 +190,7 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 
 ### API Provider Routing
 
-`POST /v1/chat/completions` remains compatible with standard OpenAI clients: neither `provider` nor `provider_id` is required. When both are omitted, Fairport prefers the accessible immutable default provider when it advertises the requested model, then deterministically selects another accessible provider that does. `provider` selects by provider name and `provider_id` selects by ID; if both are supplied, they must identify the same provider. Duplicate accessible names are rejected in favor of `provider_id`. Explicit unknown selectors return an OpenAI-format `400` error instead of silently using the default. Group-owned API keys can use public model offerings and private offerings owned by that group, but not the key creator's personal or other-group private offerings. Selection fields are never forwarded upstream.
+`POST /v1/chat/completions` and the legacy prompt-based `POST /v1/completions` remain compatible with standard OpenAI clients: neither `provider` nor `provider_id` is required. When both are omitted, Fairport prefers the accessible immutable default provider when it advertises the requested model, then deterministically selects another accessible provider that does. `provider` selects by provider name and `provider_id` selects by ID; if both are supplied, they must identify the same provider. Duplicate accessible names are rejected in favor of `provider_id`. Explicit unknown selectors return an OpenAI-format `400` error instead of silently using the default. Group-owned API keys can use public model offerings and private offerings owned by that group, but not the key creator's personal or other-group private offerings. Selection fields are never forwarded upstream.
 
 ### Model Catalog API
 

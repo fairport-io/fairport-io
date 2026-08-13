@@ -121,6 +121,13 @@ Definitions
 | -     |       | /v1/chat/completions    | POST   | returns OpenAI-format response |
 | ✅    | vi    | /v1/chat/completions    | POST   | usage event recorded for streaming response — chat-stream.test.ts |
 
+## POST /v1/completions
+
+| State | Suite | Endpoint | Method | Test |
+|-------|-------|----------|--------|------|
+| ✅ | vi | /v1/completions | POST | forwards prompt and legacy parameters to the provider and relays its response — chat-stream.test.ts |
+| ✅ | vi | /v1/completions | POST | relays SSE and rejects a malformed prompt — chat-stream.test.ts |
+
 ## GET /v1/models
 
 | State | Suite | Endpoint | Method | Test |

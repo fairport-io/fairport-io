@@ -110,7 +110,7 @@ The following security issues were identified and fixed:
 
 ## Chat Parameter Passthrough (2026-07-15)
 
-Both `/api/chat/stream` and `/v1/chat/completions` now preserve unrecognized top-level request fields when forwarding to the selected provider.
+`/api/chat/stream`, `/v1/chat/completions`, and `/v1/completions` preserve unrecognized top-level request fields when forwarding to the selected provider.
 
 - `provider` and `provider_id` remain Fairport-only and are not forwarded.
 - Fairport applies its resolved `model`, `messages`, and validated stream mode after passthrough fields so those values remain authoritative.
@@ -120,6 +120,11 @@ Both `/api/chat/stream` and `/v1/chat/completions` now preserve unrecognized top
 - `tests/e2e/app.spec.ts` covers modal validation, typed payloads, refresh persistence, Clear History cleanup, and the mobile layout.
 - `/v1/chat/completions` accepts strict boolean `stream: true` and relays provider SSE bytes without the Chat UI event transformation.
 - API stream finalization records usage and releases the queue once on `[DONE]`, upstream end/error, or client disconnect.
+
+## Legacy Completions (2026-08-12)
+
+- `POST /v1/completions` shares the chat endpoint's authentication, provider selection, limits, queue, logging, and usage accounting.
+- Legacy `prompt` requests and parameters are forwarded to the selected provider's `/completions`; JSON and SSE responses are relayed unchanged.
 
 ## Chat Stream Robustness (2026-07-13)
 
@@ -152,7 +157,7 @@ Hardened `/api/chat/stream` upstream SSE handling:
 
 ### `server.ts`
 - Main Express server (API + static file serving)
-- Endpoints: `/api/auth/*`, `/api/keys`, `/api/providers`, `/api/models`, `/api/groups`, `/api/groups/:slug`, `/api/groups/:slug/members`, `/api/admin/users`, `/api/admin/users/:userId`, `/api/admin/users/:userId/keys/:keyId`, `/api/admin/users/:userId/providers/:providerId`, `/api/admin/users/:userId/groups/:groupSlug`, `/api/admin/users/:userId/usage`, `/api/chat/stream`, `/v1/chat/completions`, `/v1/models`, `/api/messages`, `/api/config`, `/api/usage`
+- Endpoints: `/api/auth/*`, `/api/keys`, `/api/providers`, `/api/models`, `/api/groups`, `/api/groups/:slug`, `/api/groups/:slug/members`, `/api/admin/users`, `/api/admin/users/:userId`, `/api/admin/users/:userId/keys/:keyId`, `/api/admin/users/:userId/providers/:providerId`, `/api/admin/users/:userId/groups/:groupSlug`, `/api/admin/users/:userId/usage`, `/api/chat/stream`, `/v1/chat/completions`, `/v1/completions`, `/v1/models`, `/api/messages`, `/api/config`, `/api/usage`
 
 ### `src/App.tsx`
 - Main React component with full UI
@@ -221,13 +226,14 @@ Hardened `/api/chat/stream` upstream SSE handling:
 - Stored as `iv:authTag:ciphertext` hex format in `provider.api_key`
 - Default (immutable) provider uses env var directly, not encrypted
 - Frontend never receives the encrypted blob — stripped from GET /api/config response
-- Decrypted only when forwarding upstream in `/api/chat/stream` and `/v1/chat/completions`
+- Decrypted only when forwarding upstream in `/api/chat/stream`, `/v1/chat/completions`, and `/v1/completions`
 - `SECRET_KEY` rotation destroys all encrypted provider keys (users re-enter them)
 - `SECRET_KEY` auto-generated in dev but MUST be set for production persistence
 
 ### Chat
 - `POST /api/chat/stream` - SSE streaming endpoint (session auth)
 - `POST /v1/chat/completions` - OpenAI-compatible streaming and non-streaming (Bearer auth)
+- `POST /v1/completions` - Legacy OpenAI prompt completions, streaming and non-streaming (Bearer auth)
 
 ### Rate Limiting
 - Per-user-per-model in-memory sliding window (`RateLimiter` class in server.ts)
@@ -285,11 +291,11 @@ Hardened `/api/chat/stream` upstream SSE handling:
 - Fields: timestamp, source_ip, target_url, method, status_code, duration_ms, request_id, etc.
 - Request IDs generated with `crypto.randomUUID()` and passed through to frontend
 - General middleware logs every request (duration, status, etc.)
-- Chat endpoints (`/api/chat/stream`, `/v1/chat/completions`) get 2 logs: a start log (request_id, provider_id, source, pricing) and an end log (tokens, costs, timing)
+- Completion endpoints (`/api/chat/stream`, `/v1/chat/completions`, `/v1/completions`) get 2 logs: a start log (request_id, provider_id, source, pricing) and an end log (tokens, costs, timing)
 - Chat logs add `requested_model` for the normalized client selection (or null when omitted) and `model` for the resolved value routed upstream and used for limits, queueing, and usage
-- Extra fields attached to middleware log via `res.locals.log` for endpoints that use `res.json()` (like `/v1/chat/completions`)
+- Extra fields attached to middleware log via `res.locals.log` for endpoints that use `res.json()` (like `/v1/chat/completions` and `/v1/completions`)
 - SSE endpoint (`/api/chat/stream`) logs explicitly since middleware doesn't fire for SSE
-- `/v1/chat/completions` accepts optional `provider` (name) and `provider_id` selectors; omission prefers a matching immutable default, then a deterministic accessible provider
+- `/v1/chat/completions` and `/v1/completions` accept optional `provider` (name) and `provider_id` selectors; omission prefers a matching immutable default, then a deterministic accessible provider
 
 ## OAuth / OIDC SSO
 
@@ -318,7 +324,7 @@ Hardened `/api/chat/stream` upstream SSE handling:
 - React curly braces `{}` in JSX - use `{{}}` for object literals
 - Modal placement matters - must be outside conditional tab renders
 - API key is returned only on creation - after that it's hashed
-- `/v1/chat/completions` streams only for strict boolean `stream: true`; omitted, false, or non-boolean values use the JSON response path
+- `/v1/chat/completions` and `/v1/completions` stream only for strict boolean `stream: true`; omitted, false, or non-boolean values use the JSON response path
 - Duplicate key names are prevented per user (409 Conflict)
 - `DEFAULT_PROVIDER_MODELS` env var renamed to `DEFAULT_PROVIDER_MODEL` (singular)
 - New env vars: `DEFAULT_PROVIDER_MODEL_IN_PRICE_1M`, `DEFAULT_PROVIDER_MODEL_OUT_PRICE_1M` (default 0) for model cost tracking, `DEFAULT_PROVIDER_MODEL_QUEUE_MAX_SIZE` (default 5)

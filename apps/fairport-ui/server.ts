@@ -123,6 +123,13 @@ const BOOTSTRAP_ADMIN_EMAILS = (process.env.BOOTSTRAP_ADMIN_EMAILS || '').split(
 const MAX_INPUT_TOKENS = 100000;
 const estimateTokens = (messages: any[]) =>
   messages.reduce((sum: number, m: any) => sum + Math.ceil((m.content?.length || 0) / 4), 0);
+const estimatePromptTokens = (prompt: string | string[] | number[] | number[][] | null | undefined) =>
+  prompt == null
+    ? 0
+    : typeof prompt === 'string'
+    ? Math.ceil(prompt.length / 4)
+    : prompt.reduce((sum: number, item: string | number | number[]) =>
+        sum + (typeof item === 'string' ? Math.ceil(item.length / 4) : Array.isArray(item) ? item.length : 1), 0);
 
 function isSignupAllowed(email: string): boolean {
   if (SIGNUP_ALLOWED_EMAILS.size === 0 && SIGNUP_ALLOWED_DOMAINS.size === 0) return true;
@@ -934,6 +941,11 @@ function resolveProviderApiKey(provider: any): string {
 function buildProviderChatBody(body: Record<string, any>, model: string, messages: any[], stream: boolean) {
   const { provider: _provider, provider_id: _providerId, ...passthrough } = body;
   return { ...passthrough, model, messages, stream };
+}
+
+function buildProviderCompletionBody(body: Record<string, any>, model: string, stream: boolean) {
+  const { provider: _provider, provider_id: _providerId, ...passthrough } = body;
+  return { ...passthrough, model, stream };
 }
 
 // --- MIDDLEWARE ---
@@ -2849,19 +2861,30 @@ app.post('/api/chat/stream', async (req, res) => {
   }
 });
 
-// OpenAI-compatible streaming and non-streaming chat completions endpoint
-app.post('/v1/chat/completions', async (req: Request, res: Response) => {
+// OpenAI-compatible streaming and non-streaming completions endpoints
+app.post(['/v1/chat/completions', '/v1/completions'], async (req: Request, res: Response) => {
   const { user, db, apiKey } = await getAuthContext(req);
   if (!user) return res.status(401).json({ error: { message: "Auth required", type: "authentication_error", code: "invalid_api_key" }});
   if (!apiKey) return res.status(400).json({ error: { message: "An API key is required", type: "invalid_request_error", code: "missing_api_key" }});
 
+  const isLegacyCompletion = req.path === '/v1/completions';
   const {
     messages,
+    prompt,
     model: requestedModelValue,
     stream,
     provider: requestedProviderNameValue,
     provider_id: requestedProviderIdValue,
   } = req.body;
+
+  const validPrompt = prompt == null || typeof prompt === 'string' || (Array.isArray(prompt) && prompt.length > 0 && (
+    prompt.every((item: any) => typeof item === 'string')
+    || prompt.every((item: any) => Number.isInteger(item))
+    || prompt.every((item: any) => Array.isArray(item) && item.every(Number.isInteger))
+  ));
+  if (isLegacyCompletion && !validPrompt) {
+    return res.status(400).json({ error: { message: "Prompt must be null, a string, or an array of strings or tokens", type: "invalid_request_error", code: "invalid_prompt" }});
+  }
 
   if (requestedModelValue !== undefined && typeof requestedModelValue !== 'string') {
     return res.status(400).json({ error: { message: "Model must be a string", type: "invalid_request_error", code: "invalid_model" }});
@@ -2935,7 +2958,8 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
   }
 
   const startTime = Date.now();
-  const requestId = `chatcmpl-${crypto.randomUUID()}`;
+  const requestId = `${isLegacyCompletion ? 'cmpl' : 'chatcmpl'}-${crypto.randomUUID()}`;
+  const completionPath = isLegacyCompletion ? '/v1/completions' : '/v1/chat/completions';
   res.locals.log = {
     request_id: requestId,
     provider_id: provider.id,
@@ -2962,8 +2986,8 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
   console.log(JSON.stringify({
     timestamp: new Date().toISOString(),
     source_ip: req.ip || req.socket.remoteAddress,
-    target_url: '/v1/chat/completions',
-    target_path: '/v1/chat/completions',
+    target_url: completionPath,
+    target_path: completionPath,
     method: 'POST',
     status_code: 200,
     user_agent: req.get('User-Agent') || '-',
@@ -3000,7 +3024,7 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
   }
 
   const isStreaming = stream === true;
-  const inputTokens = estimateTokens(messages);
+  const inputTokens = isLegacyCompletion ? estimatePromptTokens(prompt) : estimateTokens(messages);
   if (inputTokens > MAX_INPUT_TOKENS) {
     requestQueue.dequeue(queueKey);
     return res.status(400).json({ error: { message: `Input exceeds ${MAX_INPUT_TOKENS.toLocaleString()} token limit (${inputTokens.toLocaleString()} tokens estimated)`, type: "invalid_request_error" }});
@@ -3011,12 +3035,9 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
       provider.base_url,
       provider.immutable ? 'operator' : (provider.allow_private ? 'private' : 'public')
     );
-    const response = await axios.post(`${provider.base_url}/chat/completions`, buildProviderChatBody(
-      req.body,
-      modelId,
-      messages,
-      isStreaming
-    ), {
+    const response = await axios.post(`${provider.base_url}${isLegacyCompletion ? '/completions' : '/chat/completions'}`, isLegacyCompletion
+      ? buildProviderCompletionBody(req.body, modelId, isStreaming)
+      : buildProviderChatBody(req.body, modelId, messages, isStreaming), {
       ...providerRequestConfig(providerTarget),
       headers: { 'Authorization': `Bearer ${resolveProviderApiKey(provider)}` },
       ...(isStreaming ? { responseType: 'stream' } : {})
@@ -3106,8 +3127,11 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
 
         try {
           const json = JSON.parse(rawData);
-          const delta = json.choices?.[0]?.delta || {};
-          assistantContent += delta.content || delta.reasoning_content || delta.thinking || delta.reasoning || '';
+          const choice = json.choices?.[0] || {};
+          const delta = choice.delta || {};
+          assistantContent += isLegacyCompletion
+            ? choice.text || ''
+            : delta.content || delta.reasoning_content || delta.thinking || delta.reasoning || '';
           if (typeof json.usage?.prompt_tokens === 'number') upstreamInputTokens = json.usage.prompt_tokens;
           if (typeof json.usage?.completion_tokens === 'number') upstreamOutputTokens = json.usage.completion_tokens;
         } catch (e) {}
@@ -3153,17 +3177,24 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
       return;
     }
 
-    const assistantMessage = response.data.choices[0].message;
+    const assistantContent = isLegacyCompletion
+      ? response.data.choices.map((choice: any) => choice.text || '').join('')
+      : response.data.choices[0].message.content;
     const duration = Date.now() - startTime;
-    const outputTokens = Math.ceil((assistantMessage.content?.length || 0) / 4);
-    const inputCost = (inputTokens / 1_000_000) * inputPricePerM;
+    const recordedInputTokens = isLegacyCompletion && typeof response.data.usage?.prompt_tokens === 'number'
+      ? response.data.usage.prompt_tokens
+      : inputTokens;
+    const outputTokens = isLegacyCompletion && typeof response.data.usage?.completion_tokens === 'number'
+      ? response.data.usage.completion_tokens
+      : Math.ceil(assistantContent.length / 4);
+    const inputCost = (recordedInputTokens / 1_000_000) * inputPricePerM;
     const outputCost = (outputTokens / 1_000_000) * outputPricePerM;
 
     requestQueue.dequeue(queueKey);
 
     res.locals.log = {
       ...res.locals.log,
-      input_tokens: inputTokens,
+      input_tokens: recordedInputTokens,
       output_tokens: outputTokens,
       tokens_per_second: duration > 0 ? parseFloat((outputTokens / (duration / 1000)).toFixed(2)) : 0,
       input_price_per_1m: inputPricePerM,
@@ -3184,13 +3215,15 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
       user_id: user.id,
       group_id: apiKey.group_id || null,
       timestamp: Math.floor(Date.now() / 1000),
-      input_tokens: inputTokens,
+      input_tokens: recordedInputTokens,
       output_tokens: outputTokens,
       source: 'API',
       input_price_per_1m_tokens: inputPricePerM,
       output_price_per_1m_tokens: outputPricePerM,
     });
     await saveDb(db);
+
+    if (isLegacyCompletion) return res.json(response.data);
 
     res.json({
       id: requestId,
@@ -3201,14 +3234,14 @@ app.post('/v1/chat/completions', async (req: Request, res: Response) => {
         index: 0,
         message: {
           role: "assistant",
-          content: assistantMessage.content
+          content: assistantContent
         },
         finish_reason: "stop"
       }],
       usage: {
-        prompt_tokens: inputTokens,
+        prompt_tokens: recordedInputTokens,
         completion_tokens: outputTokens,
-        total_tokens: inputTokens + outputTokens
+        total_tokens: recordedInputTokens + outputTokens
       },
       rate_limit_windows: rateLimitResult.windows,
       queue: { size: requestQueue.getQueueSize(queueKey), limit: queueMaxSize }

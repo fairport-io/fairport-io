@@ -620,3 +620,67 @@ describe('POST /v1/chat/completions', () => {
     expect(axiosPost.mock.calls).toHaveLength(callsBeforeRequest);
   });
 });
+
+describe('POST /v1/completions', () => {
+  it('forwards prompt requests to the provider legacy endpoint', async () => {
+    const upstreamResponse = {
+      id: 'cmpl-upstream',
+      object: 'text_completion',
+      created: 123,
+      model: apiProviderModel,
+      choices: [{ text: 'Hello', index: 0, logprobs: null, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 2, completion_tokens: 2, total_tokens: 4 },
+    };
+    axiosPost.mockResolvedValueOnce({ data: upstreamResponse });
+
+    const res = await request(app)
+      .post('/v1/completions')
+      .set({ Authorization: `Bearer ${apiKey}` })
+      .send({
+        prompt: 'Hi',
+        model: apiProviderModel,
+        provider: apiProviderName,
+        max_tokens: 16,
+      });
+
+    expect(res.status).toBe(200);
+    const [forwardedUrl, forwardedBody] = axiosPost.mock.calls[axiosPost.mock.calls.length - 1];
+    expect(forwardedUrl).toBe('http://93.184.216.34/v1/completions');
+    expect(forwardedBody).toEqual({
+      prompt: 'Hi',
+      max_tokens: 16,
+      model: apiProviderModel,
+      stream: false,
+    });
+    expect(res.body).toEqual(upstreamResponse);
+  });
+
+  it('relays legacy completion SSE and rejects a malformed prompt', async () => {
+    const expectedStream = [
+      'data: {"choices":[{"text":"Hello"}]}\n\n',
+      'data: [DONE]\n\n',
+    ].join('');
+    axiosPost.mockImplementationOnce(() => {
+      const stream = new PassThrough();
+      setTimeout(() => stream.end(expectedStream), 0);
+      return Promise.resolve({ data: stream, status: 200 });
+    });
+
+    const streamed = await request(app)
+      .post('/v1/completions')
+      .set({ Authorization: `Bearer ${apiKey}` })
+      .send({ prompt: 'Hi', model: apiProviderModel, provider: apiProviderName, stream: true });
+
+    expect(streamed.status).toBe(200);
+    expect(streamed.text).toBe(expectedStream);
+
+    const callsBeforeInvalidRequest = axiosPost.mock.calls.length;
+    const invalid = await request(app)
+      .post('/v1/completions')
+      .set({ Authorization: `Bearer ${apiKey}` })
+      .send({ prompt: {}, model: apiProviderModel, provider: apiProviderName });
+    expect(invalid.status).toBe(400);
+    expect(invalid.body.error.code).toBe('invalid_prompt');
+    expect(axiosPost.mock.calls).toHaveLength(callsBeforeInvalidRequest);
+  });
+});
