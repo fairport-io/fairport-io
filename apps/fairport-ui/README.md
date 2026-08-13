@@ -180,6 +180,8 @@ Use custom colors and logos - configured via [Environment Variables](https://git
 | **API** | Unrecognized top-level chat parameters pass through to providers; Fairport selection fields are stripped |
 | **API** | `provider` (name) and `provider_id` are optional; omission routes by model, preferring the immutable default provider |
 | **API** | The requested model is validated against the resolved provider and routed unchanged upstream |
+| **API** | Provider calls use five-minute request/stream timeouts and a 64 MiB response limit; streams honor backpressure and stop when the client disconnects |
+| **API** | Unexpected asynchronous route failures return a generic 500 response instead of terminating the server process |
 | **Logging** | JSON request logging to stdout |
 | **Logging** | Request IDs via `crypto.randomUUID()` |
 | **Logging** | Chat logs include `requested_model` and the resolved upstream `model` in start + end entries |

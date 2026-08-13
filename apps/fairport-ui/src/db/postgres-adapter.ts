@@ -125,24 +125,27 @@ export class PostgresAdapter implements DatabaseAdapter {
 
   async load(): Promise<DbData> {
     const client = await this.getClient();
-    const result: any = {};
-    for (const table of TABLES) {
-      const sqlTable = TABLE_MAP[table];
-      const res = await client.query(`SELECT * FROM "${sqlTable}"`);
-      if (table === 'providers') {
-        result[table] = res.rows.map((r: any) => {
-          const obj: any = {};
-          for (const key of Object.keys(r)) {
-            obj[key] = fromPgValue('providers', key, r[key]);
-          }
-          return obj;
-        });
-      } else {
-        result[table] = res.rows.map((r: any) => this.fromRow(table, r));
+    try {
+      const result: any = {};
+      for (const table of TABLES) {
+        const sqlTable = TABLE_MAP[table];
+        const res = await client.query(`SELECT * FROM "${sqlTable}"`);
+        if (table === 'providers') {
+          result[table] = res.rows.map((r: any) => {
+            const obj: any = {};
+            for (const key of Object.keys(r)) {
+              obj[key] = fromPgValue('providers', key, r[key]);
+            }
+            return obj;
+          });
+        } else {
+          result[table] = res.rows.map((r: any) => this.fromRow(table, r));
+        }
       }
+      return result as DbData;
+    } finally {
+      client.release();
     }
-    client.release();
-    return result as DbData;
   }
 
   async save(data: DbData): Promise<void> {
@@ -234,6 +237,7 @@ export class PostgresAdapter implements DatabaseAdapter {
       max: 1,
       connectionTimeoutMillis: 5000,
     });
+    adminPool.on('error', (error: Error) => console.error('Unexpected PostgreSQL admin pool error:', error));
 
     try {
       const dbExists = await adminPool.query(
@@ -258,6 +262,7 @@ export class PostgresAdapter implements DatabaseAdapter {
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
     });
+    this.pool.on('error', (error: Error) => console.error('Unexpected PostgreSQL pool error:', error));
 
     // Create tables
     const client = await this.pool.connect();

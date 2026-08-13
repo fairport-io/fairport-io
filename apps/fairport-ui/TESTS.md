@@ -43,6 +43,12 @@ Definitions
 | ✅    | vi    | /api/auth/login    | POST   | signup allowlists do not affect existing-user login — auth.test.ts |
 | -     |       | /api/auth/signup   | POST   | bad email format rejected |
 
+## POST /api/auth/login
+
+| State | Suite | Endpoint        | Method | Test |
+|-------|-------|-----------------|--------|------|
+| ✅    | vi    | /api/auth/login | POST   | non-string or missing credentials return 400 without throwing — auth.test.ts |
+
 ## GET /api/auth/session
 | State | Suite | Endpoint          | Method | Test |
 |-------|-------|-------------------|--------|------|
@@ -97,6 +103,8 @@ Definitions
 | ✅    | vi    | /api/chat/stream  | POST   | model not configured for the selected provider is rejected before upstream routing — chat-stream.test.ts |
 | ✅    | vi    | /api/chat/stream  | POST   | unknown provider ID is rejected instead of falling back to another provider — chat-stream.test.ts |
 | ✅    | vi    | /api/chat/stream  | POST   | inaccessible and unknown provider IDs return the same response — chat-stream.test.ts |
+| ✅    | vi    | /api/chat/stream  | POST   | missing or malformed messages return 400 without reaching the provider — chat-stream.test.ts |
+| ✅    | vi    | /api/chat/stream  | POST   | final persistence failures are contained and release the provider queue — chat-stream.test.ts |
 | -     |       | /api/chat/stream  | POST   | thinking/reasoning content streamed separately |
 | -     |       | /api/chat/stream  | POST   | TTFT tracked on first token |
 | -     |       | /api/chat/stream  | POST   | input token limit enforced (400) |
@@ -108,6 +116,7 @@ Definitions
 | State | Suite | Endpoint                | Method | Test |
 |-------|-------|-------------------------|--------|------|
 | -     |       | /v1/chat/completions    | POST   | requires Bearer API key auth |
+| ✅    | vi    | /v1/chat/completions    | POST   | prompt-only or malformed message requests return an OpenAI-format 400 instead of crashing — chat-stream.test.ts |
 | ✅    | vi    | /v1/chat/completions    | POST   | relays split upstream SSE for stream=true, records usage, and releases the queue — chat-stream.test.ts |
 | ✅    | vi    | /v1/chat/completions    | POST   | selects by provider name, passes through nested parameters, strips provider selectors, and controls model/messages/stream — chat-stream.test.ts |
 | ✅    | vi    | /v1/chat/completions    | POST   | omitted provider selector uses the immutable default when it supports the requested model — chat-stream.test.ts |
@@ -118,6 +127,7 @@ Definitions
 | ✅    | vi    | /v1/chat/completions    | POST   | automatic routing remains optional with multiple matches; ambiguous names and conflicting selectors are rejected — chat-stream.test.ts |
 | ✅    | vi    | /v1/chat/completions    | POST   | inaccessible and unknown provider selectors return the same OpenAI error — chat-stream.test.ts |
 | ✅    | vi    | /v1/chat/completions    | POST   | provider DNS failures return OpenAI-format 502 errors with provider/model log context — chat-stream.test.ts |
+| ✅    | vi    | /v1/chat/completions    | POST   | upstream streaming requests use finite time and response-size bounds — chat-stream.test.ts |
 | -     |       | /v1/chat/completions    | POST   | returns OpenAI-format response |
 | ✅    | vi    | /v1/chat/completions    | POST   | usage event recorded for streaming response — chat-stream.test.ts |
 
@@ -161,6 +171,7 @@ Definitions
 | ✅    | vi    | /api/providers      | POST   | creates with name, base_url, and persisted models_path — providers.test.ts |
 | ✅    | vi    | /api/providers      | POST   | missing name/base_url returns 400 — providers.test.ts |
 | ✅    | vi    | /api/providers      | POST   | invalid rate_limits format returns 400 — providers.test.ts |
+| ✅    | vi    | /api/providers      | POST   | non-string rate_limits and api_key values return 400 — providers.test.ts |
 | ✅    | vi    | /api/providers      | POST   | invalid queue_max_size returns 400 — providers.test.ts |
 | ✅    | vi    | /api/providers      | POST   | duplicate name per user returns 409 — providers.test.ts |
 | ✅    | vi    | /api/providers      | POST   | non-admin private literals, cluster names, and mixed public/private DNS return 403 — providers.test.ts |
@@ -174,6 +185,7 @@ Definitions
 | ✅    | vi    | /api/providers      | GET    | rate_limits + queue_max_size come from the provider's first offering — providers.test.ts |
 | -     |       | /api/providers      | GET    | returns group providers when group_id provided |
 | ✅    | vi    | /api/providers/:id  | PUT    | owner can update provider fields and models_path — providers.test.ts |
+| ✅    | vi    | /api/providers/:id  | PUT    | non-string rate_limits and api_key values return 400 — providers.test.ts |
 | ✅    | vi    | /api/providers/:id  | PUT    | unchanged admin-approved private URL does not block a group member's other edits — providers.test.ts |
 | ✅    | vi    | /api/providers/:id  | PUT    | group members cannot change an admin-approved private provider URL — providers.test.ts |
 | ✅    | vi    | /api/providers/:id  | PUT    | immutable provider returns 403 — providers.test.ts |
@@ -249,6 +261,7 @@ Definitions
 | State | Suite | Endpoint     | Method | Test |
 |-------|-------|--------------|--------|------|
 | ✅    | vi    | /api/config  | GET    | returns public projections without credentials, offering metadata, provider base URLs/private approval, or the default provider URL — auth.test.ts |
+| ✅    | vi    | /api/config  | GET    | an unexpected async route rejection returns 500 and the next request still succeeds — auth.test.ts |
 
 ## /api/groups
 | State | Suite | Endpoint                          | Method | Test |
@@ -264,11 +277,13 @@ Definitions
 | -     |       | /api/groups/:slug/members/:id     | DELETE | admin-only, removes from group |
 | -     |       | /api/groups/:slug/members/search  | GET    | filters by email query |
 | -     |       | /api/groups/:slug/members/search  | GET    | wildcard groups search all users |
+| ✅    | vi    | /api/groups/:slug/members         | GET    | repeated q parameters return 400 instead of throwing — providers.test.ts |
 
 ## /api/admin/users
 | State | Suite | Endpoint                               | Method | Test |
 |-------|-------|----------------------------------------|--------|------|
 | -     |       | /api/admin/users                       | GET    | admin-only, filters by email |
+| ✅    | vi    | /api/admin/users                       | GET    | repeated q parameters return 400 instead of throwing — providers.test.ts |
 | -     |       | /api/admin/users/:userId               | GET    | returns user's keys, providers, groups |
 | -     |       | /api/admin/users/:userId               | DELETE | admin-only, cannot delete yourself |
 | -     |       | /api/admin/users/:userId               | DELETE | cascades: keys, providers, messages, usage |

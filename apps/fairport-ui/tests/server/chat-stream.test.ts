@@ -224,6 +224,78 @@ describe('POST /api/chat/stream', () => {
     expect(axiosPost.mock.calls).toHaveLength(callsBeforeRequest);
   });
 
+  it.each([
+    ['missing messages', undefined],
+    ['an empty message list', []],
+    ['object-valued content', [{ role: 'user', content: { length: 'not-a-number' } }]],
+  ])('rejects %s without crashing', async (_label, messages) => {
+    const callsBeforeRequest = axiosPost.mock.calls.length;
+    const res = await request(app)
+      .post('/api/chat/stream')
+      .set({ ...auth(), 'x-api-key-id': keyId })
+      .send({ messages, model: 'llama3-8b', provider_id: multiModelProviderId });
+
+    expect(res.status).toBe(400);
+    expect(res.body.detail).toBe('Messages must be a non-empty array ending with text content');
+    expect(axiosPost.mock.calls).toHaveLength(callsBeforeRequest);
+  });
+
+  it('contains a database failure during stream finalization and releases the queue', async () => {
+    const { PGliteAdapter } = await import('../../src/db/pglite-adapter');
+    const originalSave = PGliteAdapter.prototype.save;
+    let baselineUsageCount: number | undefined;
+    let rejected = false;
+    const saveSpy = vi.spyOn(PGliteAdapter.prototype, 'save').mockImplementation(async function(data: any) {
+      if (baselineUsageCount === undefined) baselineUsageCount = data.usage_events.length;
+      if (!rejected && data.usage_events.length > baselineUsageCount) {
+        rejected = true;
+        throw new Error('database unavailable');
+      }
+      return originalSave.call(this, data);
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    axiosPost.mockImplementationOnce(() => {
+      const stream = new PassThrough();
+      setTimeout(() => stream.end('data: [DONE]\n\n'), 0);
+      return Promise.resolve({ data: stream });
+    });
+
+    const failed = await request(app)
+      .post('/api/chat/stream')
+      .set({ ...auth(), 'x-api-key-id': keyId })
+      .send({
+        messages: [{ role: 'user', content: 'hi' }],
+        model: apiProviderModel,
+        provider_id: apiProviderId,
+      });
+
+    expect(failed.status).toBe(200);
+    expect(failed.text).toContain('Unable to finalize chat response');
+    expect(rejected).toBe(true);
+
+    saveSpy.mockRestore();
+    errorSpy.mockRestore();
+    axiosPost.mockImplementationOnce(() => {
+      const stream = new PassThrough();
+      setTimeout(() => stream.end('data: [DONE]\n\n'), 0);
+      return Promise.resolve({ data: stream });
+    });
+
+    const followUp = await request(app)
+      .post('/api/chat/stream')
+      .set({ ...auth(), 'x-api-key-id': keyId })
+      .send({
+        messages: [{ role: 'user', content: 'still alive' }],
+        model: apiProviderModel,
+        provider_id: apiProviderId,
+      })
+      .timeout({ response: 1000, deadline: 2000 });
+
+    expect(followUp.status).toBe(200);
+    expect(followUp.text).toContain('"type":"done"');
+  });
+
   it('rejects an unknown provider instead of falling back to the default provider', async () => {
     const callsBeforeRequest = axiosPost.mock.calls.length;
     const res = await request(app)
@@ -259,6 +331,26 @@ describe('POST /api/chat/stream', () => {
 });
 
 describe('POST /v1/chat/completions', () => {
+  it.each([
+    ['a prompt-only request', { prompt: 'hi' }],
+    ['an empty message list', { messages: [] }],
+    ['object-valued content', { messages: [{ role: 'user', content: { length: 'not-a-number' } }] }],
+  ])('rejects %s without crashing', async (_label, body) => {
+    const callsBeforeRequest = axiosPost.mock.calls.length;
+    const res = await request(app)
+      .post('/v1/chat/completions')
+      .set({ Authorization: `Bearer ${apiKey}` })
+      .send({ ...body, model: apiProviderModel, provider: apiProviderName });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toEqual({
+      message: 'Messages must be a non-empty array with valid content',
+      type: 'invalid_request_error',
+      code: 'invalid_messages',
+    });
+    expect(axiosPost.mock.calls).toHaveLength(callsBeforeRequest);
+  });
+
   it('relays provider SSE for stream true and releases the queue', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     const messages = [{ role: 'user', content: 'hi' }];
@@ -303,7 +395,11 @@ describe('POST /v1/chat/completions', () => {
       messages,
       stream: true,
     });
-    expect(streamCall[2]).toEqual(expect.objectContaining({ responseType: 'stream' }));
+    expect(streamCall[2]).toEqual(expect.objectContaining({
+      responseType: 'stream',
+      timeout: 5 * 60 * 1000,
+      maxContentLength: 64 * 1024 * 1024,
+    }));
 
     const streamLogs = logSpy.mock.calls
       .map(([entry]) => {

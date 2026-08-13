@@ -103,6 +103,22 @@ describe('POST /api/providers', () => {
     expect(res.status).toBe(400);
   });
 
+  it.each([
+    ['rate_limits', {}],
+    ['api_key', {}],
+  ])('rejects non-string %s with 400', async (field, value) => {
+    const res = await request(app)
+      .post('/api/providers')
+      .set({ Authorization: `Bearer ${modelsTestToken}` })
+      .send({
+        name: `bad-${field}-${Date.now()}`,
+        base_url: 'http://public.test/v1',
+        [field]: value,
+      });
+
+    expect(res.status).toBe(400);
+  });
+
   it('rejects invalid queue_max_size with 400', async () => {
     const res = await request(app)
       .post('/api/providers')
@@ -538,6 +554,18 @@ describe('PUT /api/providers/:id', () => {
     expect(res.body.models_path).toBe('/openai/v1/models');
   });
 
+  it.each([
+    ['rate_limits', {}],
+    ['api_key', {}],
+  ])('rejects non-string %s with 400', async (field, value) => {
+    const res = await request(app)
+      .put(`/api/providers/${providerId}`)
+      .set(auth())
+      .send({ [field]: value });
+
+    expect(res.status).toBe(400);
+  });
+
   it('lets a group member update other fields when an approved private URL is unchanged', async () => {
     const res = await request(app)
       .put(`/api/providers/${adminPrivateGroupProviderId}`)
@@ -572,6 +600,20 @@ describe('PUT /api/providers/:id', () => {
       .send({ name: 'hacked' });
 
     expect(res.status).toBe(403);
+  });
+});
+
+describe('Admin search query validation', () => {
+  it.each([
+    '/api/groups/default/members?q=a&q=b',
+    '/api/admin/users?q=a&q=b',
+  ])('rejects a repeated q parameter on %s', async (path) => {
+    const res = await request(app)
+      .get(path)
+      .set(adminAuth());
+
+    expect(res.status).toBe(400);
+    expect(res.body.detail).toBe('q must be supplied once');
   });
 });
 

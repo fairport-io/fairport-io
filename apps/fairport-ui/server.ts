@@ -121,8 +121,29 @@ async function resolveOAuthEndpoint(provider: OAuthProviderConfig, type: 'author
 
 const BOOTSTRAP_ADMIN_EMAILS = (process.env.BOOTSTRAP_ADMIN_EMAILS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 const MAX_INPUT_TOKENS = 100000;
+const PROVIDER_INFERENCE_TIMEOUT_MS = 5 * 60 * 1000;
+const PROVIDER_INFERENCE_MAX_BYTES = 64 * 1024 * 1024;
+const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
+const OAUTH_CODE_TTL_MS = 5 * 60 * 1000;
+const OAUTH_PENDING_MAX = 10_000;
+const isValidMessageContent = (content: any) =>
+  content == null || typeof content === 'string' || Array.isArray(content);
+const hasValidMessages = (messages: any) =>
+  Array.isArray(messages) && messages.length > 0 && messages.every(message =>
+    message && typeof message === 'object' && !Array.isArray(message) && isValidMessageContent(message.content)
+  );
+const estimateContentTokens = (content: any): number => {
+  if (typeof content === 'string') return Math.ceil(content.length / 4);
+  if (!Array.isArray(content)) return 0;
+  return content.reduce((sum: number, part: any) => {
+    if (typeof part === 'string') return sum + Math.ceil(part.length / 4);
+    if (!part || typeof part !== 'object') return sum;
+    const text = typeof part.text === 'string' ? part.text : typeof part.refusal === 'string' ? part.refusal : '';
+    return sum + Math.ceil(text.length / 4);
+  }, 0);
+};
 const estimateTokens = (messages: any[]) =>
-  messages.reduce((sum: number, m: any) => sum + Math.ceil((m.content?.length || 0) / 4), 0);
+  messages.reduce((sum: number, message: any) => sum + estimateContentTokens(message.content), 0);
 const estimatePromptTokens = (prompt: string | string[] | number[] | number[][] | null | undefined) =>
   prompt == null
     ? 0
@@ -1002,6 +1023,17 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+type AsyncRouteHandler = (req: Request, res: Response, next: NextFunction) => unknown;
+const safeRoute = (handler: AsyncRouteHandler) =>
+  (req: Request, res: Response, next: NextFunction): void => {
+    void Promise.resolve().then(() => handler(req, res, next)).catch(next);
+  };
+const asyncGet = (routePath: any, handler: AsyncRouteHandler) => app.get(routePath, safeRoute(handler));
+const asyncPost = (routePath: any, handler: AsyncRouteHandler) => app.post(routePath, safeRoute(handler));
+const asyncPut = (routePath: any, handler: AsyncRouteHandler) => app.put(routePath, safeRoute(handler));
+const asyncPatch = (routePath: any, handler: AsyncRouteHandler) => app.patch(routePath, safeRoute(handler));
+const asyncDelete = (routePath: any, handler: AsyncRouteHandler) => app.delete(routePath, safeRoute(handler));
+
 // --- JWT HELPERS ---
 function signJwt(user: any): string {
   return jwt.sign({ sub: user.id, name: user.name }, JWT_SECRET, { expiresIn: JWT_EXPIRY });
@@ -1020,6 +1052,15 @@ const oauthStates = new Map<string, { provider: string; timestamp: number }>();
 
 // In-memory one-time auth code store for OAuth token exchange (C1)
 const oauthCodes = new Map<string, { token: string; timestamp: number }>();
+
+function pruneExpiredOAuthEntries(now = Date.now()): void {
+  for (const [state, entry] of oauthStates.entries()) {
+    if (now - entry.timestamp > OAUTH_STATE_TTL_MS) oauthStates.delete(state);
+  }
+  for (const [code, entry] of oauthCodes.entries()) {
+    if (now - entry.timestamp > OAUTH_CODE_TTL_MS) oauthCodes.delete(code);
+  }
+}
 
 // --- AUTH RATE LIMITER (C5) ---
 // Tracks failed login attempts per IP to prevent brute-force attacks.
@@ -1051,6 +1092,7 @@ setInterval(() => {
       authAttempts.delete(ip);
     }
   }
+  pruneExpiredOAuthEntries(now);
 }, 60_000);
 
 // --- RBAC CORE ---
@@ -1177,15 +1219,18 @@ function compareProviders(left: any, right: any): number {
 }
 
 // --- AUTH LOGIC ---
-app.post('/api/auth/login', async (req, res) => {
+asyncPost('/api/auth/login', async (req, res) => {
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
   // C5: brute-force rate limiting per client IP
   if (!checkAuthRateLimit(ip)) {
     return res.status(429).json({ detail: "Too many login attempts. Please try again later." });
   }
 
-  const username = req.body.username?.toLowerCase();
-  const password = req.body.password;
+  const username = typeof req.body?.username === 'string' ? req.body.username.toLowerCase() : '';
+  const password = req.body?.password;
+  if (!username || typeof password !== 'string') {
+    return res.status(400).json({ detail: "Username and password must be strings." });
+  }
   const db = await loadDb();
 
   const user = db.users.find((u: any) => u.name.toLowerCase() === username);
@@ -1233,7 +1278,7 @@ app.post('/api/auth/login', async (req, res) => {
   res.json({ token, user: { id: user.id, name: user.name }, api_key: newKey });
 });
 
-app.post('/api/auth/signup', async (req, res) => {
+asyncPost('/api/auth/signup', async (req, res) => {
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
   // C5: apply the same rate limiter to signup to prevent account-creation spam
   if (!checkAuthRateLimit(ip)) {
@@ -1299,7 +1344,7 @@ app.get('/api/auth/session', (req, res) => {
   res.json({ logged_in: false });
 });
 
-app.delete('/api/auth/account', async (req, res) => {
+asyncDelete('/api/auth/account', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
 
@@ -1336,7 +1381,7 @@ app.get('/api/auth/oauth/config', (req, res) => {
   });
 });
 
-app.get('/api/auth/oauth/authorize', async (req, res) => {
+asyncGet('/api/auth/oauth/authorize', async (req, res) => {
   const providerId = req.query.provider as string;
   if (!providerId) {
     return res.status(400).json({ detail: "Missing provider parameter" });
@@ -1349,6 +1394,10 @@ app.get('/api/auth/oauth/authorize', async (req, res) => {
 
   try {
     const authorizeUrl = await resolveOAuthEndpoint(provider, 'authorization_endpoint');
+    pruneExpiredOAuthEntries();
+    if (oauthStates.size >= OAUTH_PENDING_MAX) {
+      return res.status(503).json({ detail: "Too many pending OAuth requests. Please try again later." });
+    }
     const state = crypto.randomUUID();
     oauthStates.set(state, { provider: providerId, timestamp: Date.now() });
 
@@ -1367,7 +1416,7 @@ app.get('/api/auth/oauth/authorize', async (req, res) => {
   }
 });
 
-app.get('/api/auth/oauth/callback', async (req, res) => {
+asyncGet('/api/auth/oauth/callback', async (req, res) => {
   const frontendUrl = getBaseUrl(req);
 
   if (req.query.error) {
@@ -1377,7 +1426,8 @@ app.get('/api/auth/oauth/callback', async (req, res) => {
   const { code, state } = req.query;
 
   const storedState = oauthStates.get(state as string);
-  if (!storedState || Date.now() - storedState.timestamp > 600000) {
+  if (!storedState || Date.now() - storedState.timestamp > OAUTH_STATE_TTL_MS) {
+    if (storedState) oauthStates.delete(state as string);
     return res.status(400).send("Invalid or expired state parameter");
   }
 
@@ -1486,12 +1536,13 @@ app.get('/api/auth/oauth/callback', async (req, res) => {
     // C1: pass a short-lived one-time code instead of the JWT in the URL.
     // The frontend exchanges the code via POST /api/auth/oauth/exchange,
     // which responds with the JWT in a JSON body (never in a URL / log).
+    // Clean up codes older than 5 minutes
+    pruneExpiredOAuthEntries();
+    if (oauthCodes.size >= OAUTH_PENDING_MAX) {
+      return res.status(503).send("Too many pending OAuth requests. Please try again later.");
+    }
     const code = crypto.randomBytes(24).toString('hex');
     oauthCodes.set(code, { token, timestamp: Date.now() });
-    // Clean up codes older than 5 minutes
-    for (const [k, v] of oauthCodes.entries()) {
-      if (Date.now() - v.timestamp > 300_000) oauthCodes.delete(k);
-    }
 
     res.redirect(`${frontendUrl}/?oauth_code=${code}`);
   } catch (err: any) {
@@ -1510,7 +1561,7 @@ app.post('/api/auth/oauth/exchange', (req, res) => {
   if (!entry) {
     return res.status(400).json({ detail: 'Invalid or expired code' });
   }
-  if (Date.now() - entry.timestamp > 300_000) {
+  if (Date.now() - entry.timestamp > OAUTH_CODE_TTL_MS) {
     oauthCodes.delete(code);
     return res.status(400).json({ detail: 'Invalid or expired code' });
   }
@@ -1519,7 +1570,7 @@ app.post('/api/auth/oauth/exchange', (req, res) => {
 });
 
 // --- KEYS LOGIC ---
-app.get('/api/keys', async (req, res) => {
+asyncGet('/api/keys', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   
@@ -1538,7 +1589,7 @@ app.get('/api/keys', async (req, res) => {
   })));
 });
 
-app.post('/api/keys', async (req, res) => {
+asyncPost('/api/keys', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   
@@ -1585,7 +1636,7 @@ app.post('/api/keys', async (req, res) => {
   res.json({ ...entry, key: rawKey, key_hash: "********" });
 });
 
-app.delete('/api/keys/:id', async (req, res) => {
+asyncDelete('/api/keys/:id', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   
@@ -1654,7 +1705,7 @@ function serializeProvider(user: any, db: any, provider: any) {
   };
 }
 
-app.get('/api/providers', async (req, res) => {
+asyncGet('/api/providers', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
 
@@ -1716,7 +1767,7 @@ function serializeModelOffering(user: any, db: any, provider: any, offering: Pro
   };
 }
 
-app.get('/api/models', async (req, res) => {
+asyncGet('/api/models', async (req, res) => {
   const { user, db, apiKey, authState } = await getAuthContext(req);
   if (!user || authState !== 'jwt') return res.status(401).json({ detail: 'UI authentication required' });
 
@@ -1793,7 +1844,7 @@ app.get('/api/models', async (req, res) => {
   }
 });
 
-app.patch('/api/models/:id', async (req, res) => {
+asyncPatch('/api/models/:id', async (req, res) => {
   const { user, db, authState } = await getAuthContext(req);
   if (!user || authState !== 'jwt') return res.status(401).json({ detail: 'UI authentication required' });
   if (req.body?.visibility !== 'public' && req.body?.visibility !== 'private') {
@@ -1819,7 +1870,7 @@ app.patch('/api/models/:id', async (req, res) => {
   return res.json(serializeModelOffering(user, db, selectedProvider, selectedOffering));
 });
 
-app.post('/api/providers/test', async (req, res) => {
+asyncPost('/api/providers/test', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
 
@@ -1890,7 +1941,7 @@ app.post('/api/providers/test', async (req, res) => {
   }
 });
 
-app.post('/api/providers', async (req, res) => {
+asyncPost('/api/providers', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   
@@ -1901,6 +1952,9 @@ app.post('/api/providers', async (req, res) => {
   }
   if (models_source !== undefined && models_source !== 'manual' && models_source !== 'discovered') {
     return res.status(400).json({ detail: "models_source must be manual or discovered" });
+  }
+  if (api_key !== undefined && typeof api_key !== 'string') {
+    return res.status(400).json({ detail: "api_key must be a string" });
   }
   let modelNames: string[];
   try {
@@ -1919,7 +1973,7 @@ app.post('/api/providers', async (req, res) => {
   } catch (error) {
     return sendProviderUrlError(res, error);
   }
-  if (rate_limits && !isValidRateLimits(rate_limits)) {
+  if (rate_limits !== undefined && (typeof rate_limits !== 'string' || !isValidRateLimits(rate_limits))) {
     return res.status(400).json({ detail: "Invalid rate limits format. Use e.g. 10:request:minute,1:request:second" });
   }
   if (queue_max_size !== undefined && (!Number.isInteger(queue_max_size) || queue_max_size < 1)) {
@@ -1969,7 +2023,7 @@ app.post('/api/providers', async (req, res) => {
   res.json(entry);
 });
 
-app.put('/api/providers/:id', async (req, res) => {
+asyncPut('/api/providers/:id', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   
@@ -1994,6 +2048,9 @@ app.put('/api/providers/:id', async (req, res) => {
 
   if (models_source !== undefined && models_source !== 'manual' && models_source !== 'discovered') {
     return res.status(400).json({ detail: "models_source must be manual or discovered" });
+  }
+  if (api_key !== undefined && typeof api_key !== 'string') {
+    return res.status(400).json({ detail: "api_key must be a string" });
   }
   let normalizedName: string | undefined;
   if (name !== undefined) {
@@ -2042,7 +2099,7 @@ app.put('/api/providers/:id', async (req, res) => {
     }
   }
 
-  if (rate_limits !== undefined && !isValidRateLimits(rate_limits)) {
+  if (rate_limits !== undefined && (typeof rate_limits !== 'string' || !isValidRateLimits(rate_limits))) {
     return res.status(400).json({ detail: "Invalid rate limits format. Use e.g. 10:request:minute,1:request:second" });
   }
   if (queue_max_size !== undefined && (!Number.isInteger(queue_max_size) || queue_max_size < 1)) {
@@ -2069,7 +2126,7 @@ app.put('/api/providers/:id', async (req, res) => {
   res.json(provider);
 });
 
-app.delete('/api/providers/:id', async (req, res) => {
+asyncDelete('/api/providers/:id', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   
@@ -2096,7 +2153,7 @@ app.delete('/api/providers/:id', async (req, res) => {
 });
 
 // --- GROUPS LOGIC ---
-app.get('/api/groups', async (req, res) => {
+asyncGet('/api/groups', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
 
@@ -2134,7 +2191,7 @@ function isGroupMember(user: any, db: any, groupId: string): boolean {
   return group.members.some((m: any) => m.ids.includes(user.id) || m.ids.includes("*"));
 }
 
-app.get('/api/groups/:slug', async (req, res) => {
+asyncGet('/api/groups/:slug', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   if (!isGlobalAdmin(user, db)) return res.status(403).json({ detail: "Admin access required" });
@@ -2161,7 +2218,7 @@ app.get('/api/groups/:slug', async (req, res) => {
   });
 });
 
-app.get('/api/groups/:slug/members', async (req, res) => {
+asyncGet('/api/groups/:slug/members', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   if (!isGlobalAdmin(user, db)) return res.status(403).json({ detail: "Admin access required" });
@@ -2169,7 +2226,12 @@ app.get('/api/groups/:slug/members', async (req, res) => {
   const group = db.groups.find((g: any) => g.id === req.params.slug);
   if (!group) return res.status(404).json({ detail: "Group not found" });
 
-  const q = (req.query.q as string || '').toLowerCase();
+  let q: string;
+  try {
+    q = (queryString(req.query.q, 'q') || '').toLowerCase();
+  } catch (error: any) {
+    return res.status(400).json({ detail: error.message });
+  }
   const hasWildcard = group.members.some((m: any) => m.ids.includes("*"));
   const memberIds = hasWildcard
     ? new Set(db.users.map((u: any) => u.id))
@@ -2183,12 +2245,17 @@ app.get('/api/groups/:slug/members', async (req, res) => {
 });
 
 // Admin: search all users by email
-app.get('/api/admin/users', async (req, res) => {
+asyncGet('/api/admin/users', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   if (!isGlobalAdmin(user, db)) return res.status(403).json({ detail: "Admin access required" });
 
-  const q = (req.query.q as string || '').toLowerCase();
+  let q: string;
+  try {
+    q = (queryString(req.query.q, 'q') || '').toLowerCase();
+  } catch (error: any) {
+    return res.status(400).json({ detail: error.message });
+  }
   const results = db.users
     .filter((u: any) => !q || u.name.toLowerCase().includes(q))
     .map((u: any) => ({ id: u.id, name: u.name }));
@@ -2197,7 +2264,7 @@ app.get('/api/admin/users', async (req, res) => {
 });
 
 // Admin: add user to group
-app.post('/api/groups/:slug/members', async (req, res) => {
+asyncPost('/api/groups/:slug/members', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   if (!isGlobalAdmin(user, db)) return res.status(403).json({ detail: "Admin access required" });
@@ -2222,7 +2289,7 @@ app.post('/api/groups/:slug/members', async (req, res) => {
 });
 
 // Admin: remove user from group
-app.delete('/api/groups/:slug/members/:userId', async (req, res) => {
+asyncDelete('/api/groups/:slug/members/:userId', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   if (!isGlobalAdmin(user, db)) return res.status(403).json({ detail: "Admin access required" });
@@ -2241,7 +2308,7 @@ app.delete('/api/groups/:slug/members/:userId', async (req, res) => {
 });
 
 // Admin: get user's resources
-app.get('/api/admin/users/:userId', async (req, res) => {
+asyncGet('/api/admin/users/:userId', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   if (!isGlobalAdmin(user, db)) return res.status(403).json({ detail: "Admin access required" });
@@ -2270,7 +2337,7 @@ app.get('/api/admin/users/:userId', async (req, res) => {
 });
 
 // Admin: delete user's API key
-app.delete('/api/admin/users/:userId/keys/:keyId', async (req, res) => {
+asyncDelete('/api/admin/users/:userId/keys/:keyId', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   if (!isGlobalAdmin(user, db)) return res.status(403).json({ detail: "Admin access required" });
@@ -2283,7 +2350,7 @@ app.delete('/api/admin/users/:userId/keys/:keyId', async (req, res) => {
 });
 
 // Admin: delete user's provider
-app.delete('/api/admin/users/:userId/providers/:providerId', async (req, res) => {
+asyncDelete('/api/admin/users/:userId/providers/:providerId', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   if (!isGlobalAdmin(user, db)) return res.status(403).json({ detail: "Admin access required" });
@@ -2296,7 +2363,7 @@ app.delete('/api/admin/users/:userId/providers/:providerId', async (req, res) =>
 });
 
 // Admin: delete user
-app.delete('/api/admin/users/:userId', async (req, res) => {
+asyncDelete('/api/admin/users/:userId', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   if (!isGlobalAdmin(user, db)) return res.status(403).json({ detail: "Admin access required" });
@@ -2318,7 +2385,7 @@ app.delete('/api/admin/users/:userId', async (req, res) => {
 });
 
 // Admin: remove user from a specific group
-app.delete('/api/admin/users/:userId/groups/:groupSlug', async (req, res) => {
+asyncDelete('/api/admin/users/:userId/groups/:groupSlug', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   if (!isGlobalAdmin(user, db)) return res.status(403).json({ detail: "Admin access required" });
@@ -2337,7 +2404,7 @@ app.delete('/api/admin/users/:userId/groups/:groupSlug', async (req, res) => {
 });
 
 // Admin: get user's usage events
-app.get('/api/admin/users/:userId/usage', async (req, res) => {
+asyncGet('/api/admin/users/:userId/usage', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   if (!isGlobalAdmin(user, db)) return res.status(403).json({ detail: "Admin access required" });
@@ -2380,7 +2447,7 @@ app.get('/api/admin/users/:userId/usage', async (req, res) => {
 });
 
 // --- MESSAGES LOGIC ---
-app.get('/api/messages', async (req, res) => {
+asyncGet('/api/messages', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   
@@ -2391,7 +2458,7 @@ app.get('/api/messages', async (req, res) => {
   res.json(userMessages);
 });
 
-app.delete('/api/messages', async (req, res) => {
+asyncDelete('/api/messages', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   
@@ -2404,7 +2471,7 @@ app.delete('/api/messages', async (req, res) => {
 });
 
 // --- CHAT LOGIC ---
-app.get('/api/config', async (req, res) => {
+asyncGet('/api/config', async (req, res) => {
   const db = await loadDb();
   const { default_provider_api_key, default_provider_url, ...safeConfig } = APP_CONFIG;
   res.json({ 
@@ -2492,7 +2559,7 @@ function openAiModel(entry: { provider: any; offering: ProviderOffering }) {
   };
 }
 
-app.get('/v1/models', async (req: Request, res: Response) => {
+asyncGet('/v1/models', async (req: Request, res: Response) => {
   const { user, db, apiKey, authState } = await getAuthContext(req);
   if (authState === 'invalid') {
     return sendOpenAiError(res, 401, 'Invalid authentication credentials', 'authentication_error', 'invalid_api_key');
@@ -2510,7 +2577,7 @@ app.get('/v1/models', async (req: Request, res: Response) => {
   return res.json({ object: 'list', data: result.entries.map(openAiModel) });
 });
 
-app.get('/v1/models/:model', async (req: Request, res: Response) => {
+asyncGet('/v1/models/:model', async (req: Request, res: Response) => {
   const { user, db, apiKey, authState } = await getAuthContext(req);
   if (authState === 'invalid') {
     return sendOpenAiError(res, 401, 'Invalid authentication credentials', 'authentication_error', 'invalid_api_key');
@@ -2530,12 +2597,15 @@ app.get('/v1/models/:model', async (req: Request, res: Response) => {
   return res.json(openAiModel(entry));
 });
 
-app.post('/api/chat/stream', async (req, res) => {
+asyncPost('/api/chat/stream', async (req, res) => {
   const { user, db, apiKey } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
   if (!apiKey) return res.status(400).json({ detail: "An API key is required to use the chat" });
 
   const { messages, provider_id, model: requestedModelValue } = req.body;
+  if (!hasValidMessages(messages) || typeof messages[messages.length - 1].content !== 'string') {
+    return res.status(400).json({ detail: "Messages must be a non-empty array ending with text content" });
+  }
   if (requestedModelValue !== undefined && typeof requestedModelValue !== 'string') {
     return res.status(400).json({ detail: "Model must be a string" });
   }
@@ -2644,14 +2714,18 @@ app.post('/api/chat/stream', async (req, res) => {
     }));
     return res.status(429).json({ detail: `Too many concurrent requests for ${user.name} using model ${modelId} from provider ${provider.name}`, type: "queue_full" });
   }
+  let queueReleased = false;
+  const releaseQueue = () => {
+    if (queueReleased) return;
+    queueReleased = true;
+    requestQueue.dequeue(queueKey);
+  };
 
   // Rough token estimation: ~4 chars per token
-  messages.forEach((m: any) => {
-    inputTokens += Math.ceil((m.content?.length || 0) / 4);
-  });
+  inputTokens = estimateTokens(messages);
 
   if (inputTokens > MAX_INPUT_TOKENS) {
-    requestQueue.dequeue(queueKey);
+    releaseQueue();
     return res.status(400).json({ detail: `Input exceeds ${MAX_INPUT_TOKENS.toLocaleString()} token limit (${inputTokens.toLocaleString()} tokens estimated)` });
   }
   
@@ -2665,7 +2739,12 @@ app.post('/api/chat/stream', async (req, res) => {
       content: userMsg.content,
       timestamp: Date.now()
     });
-    await saveDb(db);
+    try {
+      await saveDb(db);
+    } catch (error) {
+      releaseQueue();
+      throw error;
+    }
   }
 
   let assistantContent = "";
@@ -2715,7 +2794,30 @@ app.post('/api/chat/stream', async (req, res) => {
 
   let streamFinished = false;
   let sseBuffer = "";
+  let upstream: any;
+  let streamBytes = 0;
+  let waitingForDrain = false;
+  let streamTimeout: NodeJS.Timeout | undefined;
   const sseDecoder = new StringDecoder('utf8');
+
+  const resumeUpstream = () => {
+    waitingForDrain = false;
+    if (!streamFinished) upstream?.resume?.();
+  };
+
+  const writeStream = (data: string | Buffer) => {
+    if (res.writableEnded || res.destroyed) return;
+    if (!res.write(data) && !waitingForDrain) {
+      waitingForDrain = true;
+      upstream?.pause?.();
+      res.once('drain', resumeUpstream);
+    }
+  };
+
+  const stopStreamResources = () => {
+    if (streamTimeout) clearTimeout(streamTimeout);
+    res.off('drain', resumeUpstream);
+  };
 
   const finishStream = async () => {
     if (streamFinished) return;
@@ -2753,42 +2855,70 @@ app.post('/api/chat/stream', async (req, res) => {
       const duration = Date.now() - startTime;
       const tps = duration > 0 ? (outputTokens / (duration / 1000)).toFixed(2) : '0';
       const responseTime = duration;
-      if (!res.writableEnded) {
-        res.write(`data: ${JSON.stringify({ type: 'done', requestId, inputTokens, outputTokens, tokensPerSecond: parseFloat(tps), ttft: firstTokenTime, responseTime, rateLimitRemaining: rateLimitResult.remaining, rateLimitLimit: rateLimitResult.limit, rateLimitUnit: rateLimitResult.unit, rateLimitWindows: rateLimitResult.windows })}\n\n`);
+      if (!res.writableEnded && !res.destroyed) {
+        writeStream(`data: ${JSON.stringify({ type: 'done', requestId, inputTokens, outputTokens, tokensPerSecond: parseFloat(tps), ttft: firstTokenTime, responseTime, rateLimitRemaining: rateLimitResult.remaining, rateLimitLimit: rateLimitResult.limit, rateLimitUnit: rateLimitResult.unit, rateLimitWindows: rateLimitResult.windows })}\n\n`);
       }
+    } catch (error: any) {
+      console.error('Chat stream finalization failed:', error);
+      writeStream(`data: ${JSON.stringify({ type: 'response', content: 'Error: Unable to finalize chat response' })}\n\n`);
     } finally {
-      requestQueue.dequeue(queueKey);
-      logStream();
-      if (!res.writableEnded) res.end();
+      stopStreamResources();
+      releaseQueue();
+      try {
+        logStream();
+      } catch (error) {
+        console.error('Chat stream logging failed:', error);
+      }
+      if (!res.writableEnded && !res.destroyed) res.end();
     }
   };
 
-  const failStream = (err: any) => {
+  const finishStreamSafely = () => {
+    void finishStream().catch((error: any) => {
+      stopStreamResources();
+      releaseQueue();
+      console.error('Chat stream completion failed:', error);
+      if (!res.destroyed) res.destroy(error);
+    });
+  };
+
+  const failStream = (failure: unknown) => {
     if (streamFinished) return;
     streamFinished = true;
-    requestQueue.dequeue(queueKey);
+    stopStreamResources();
+    releaseQueue();
+    const err = failure instanceof Error ? failure : new Error(String(failure));
     const duration = Date.now() - startTime;
-    console.log(JSON.stringify({
-      timestamp: new Date().toISOString(),
-      source_ip: req.ip || req.socket.remoteAddress,
-      target_url: '/api/chat/stream',
-      target_path: '/api/chat/stream',
-      method: 'POST',
-      status_code: 500,
-      user_agent: req.get('User-Agent') || '-',
-      api_key: req.headers['x-api-key-id'] || '-',
-      refer: req.get('Referer') || '-',
-      duration_ms: duration,
-      request_id: requestId,
-      provider_id: provider.id,
-      requested_model: requestedModel,
-      model: modelId,
-      source: 'UI',
-      error: err.message
-    }));
-    if (!res.writableEnded) {
-      res.write(`data: ${JSON.stringify({ type: 'response', content: `Error: ${err.message}` })}\n\n`);
-      res.end();
+    try {
+      console.log(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        source_ip: req.ip || req.socket.remoteAddress,
+        target_url: '/api/chat/stream',
+        target_path: '/api/chat/stream',
+        method: 'POST',
+        status_code: 500,
+        user_agent: req.get('User-Agent') || '-',
+        api_key: req.headers['x-api-key-id'] || '-',
+        refer: req.get('Referer') || '-',
+        duration_ms: duration,
+        request_id: requestId,
+        provider_id: provider.id,
+        requested_model: requestedModel,
+        model: modelId,
+        source: 'UI',
+        error: err.message
+      }));
+    } catch (logError) {
+      console.error('Chat stream error logging failed:', logError);
+    }
+    if (!res.writableEnded && !res.destroyed) {
+      try {
+        writeStream(`data: ${JSON.stringify({ type: 'response', content: `Error: ${err.message}` })}\n\n`);
+        res.end();
+      } catch (responseError: any) {
+        console.error('Chat stream error response failed:', responseError);
+        if (!res.destroyed) res.destroy(responseError);
+      }
     }
   };
 
@@ -2797,7 +2927,8 @@ app.post('/api/chat/stream', async (req, res) => {
     const rawData = line.slice(5).trim();
 
     if (rawData === '[DONE]') {
-      void finishStream();
+      finishStreamSafely();
+      upstream?.destroy?.();
       return;
     }
 
@@ -2812,13 +2943,13 @@ app.post('/api/chat/stream', async (req, res) => {
 
       if (delta.content) {
         assistantContent += delta.content;
-        res.write(`data: ${JSON.stringify({ type: 'response', content: delta.content })}\n\n`);
+        writeStream(`data: ${JSON.stringify({ type: 'response', content: delta.content })}\n\n`);
       }
       // Handle reasoning/thinking content from models like Claude, o1, etc.
       if (delta.reasoning_content || delta.thinking || delta.reasoning) {
         const tc = delta.reasoning_content || delta.thinking || delta.reasoning;
         thinkingContent += tc;
-        res.write(`data: ${JSON.stringify({ type: 'thinking', content: tc })}\n\n`);
+        writeStream(`data: ${JSON.stringify({ type: 'thinking', content: tc })}\n\n`);
       }
     } catch (e) {}
   };
@@ -2836,25 +2967,62 @@ app.post('/api/chat/stream', async (req, res) => {
     ), {
       ...providerRequestConfig(providerTarget),
       headers: { 'Authorization': `Bearer ${resolveProviderApiKey(provider)}` },
-      responseType: 'stream'
+      responseType: 'stream',
+      timeout: PROVIDER_INFERENCE_TIMEOUT_MS,
+      maxContentLength: PROVIDER_INFERENCE_MAX_BYTES
     });
 
-    response.data.on('data', (chunk: Buffer) => {
-      sseBuffer += sseDecoder.write(chunk);
-      const lines = sseBuffer.split(/\r?\n/);
-      sseBuffer = lines.pop() || "";
-      for (const line of lines) processSseLine(line);
-    });
+    upstream = response.data;
+    streamTimeout = setTimeout(() => {
+      failStream(new Error('Provider stream timed out'));
+      upstream.destroy?.();
+    }, PROVIDER_INFERENCE_TIMEOUT_MS);
+    streamTimeout.unref?.();
 
-    response.data.on('error', failStream);
-
-    response.data.on('end', () => {
-      sseBuffer += sseDecoder.end();
-      if (sseBuffer.trim()) {
-        processSseLine(sseBuffer);
-        sseBuffer = "";
+    upstream.on('data', (chunk: Buffer | string) => {
+      if (streamFinished) return;
+      try {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        streamBytes += buffer.length;
+        if (streamBytes > PROVIDER_INFERENCE_MAX_BYTES) {
+          failStream(new Error('Provider stream exceeded the response size limit'));
+          upstream.destroy?.();
+          return;
+        }
+        sseBuffer += sseDecoder.write(buffer);
+        const lines = sseBuffer.split(/\r?\n/);
+        sseBuffer = lines.pop() || "";
+        for (const line of lines) processSseLine(line);
+      } catch (error) {
+        failStream(error);
+        upstream.destroy?.();
       }
-      void finishStream();
+    });
+
+    upstream.on('error', failStream);
+
+    upstream.on('end', () => {
+      if (streamFinished) return;
+      try {
+        sseBuffer += sseDecoder.end();
+        if (sseBuffer.trim()) {
+          processSseLine(sseBuffer);
+          sseBuffer = "";
+        }
+        finishStreamSafely();
+      } catch (error) {
+        failStream(error);
+      }
+    });
+
+    upstream.on('close', () => {
+      if (!streamFinished) failStream(new Error('Provider stream closed unexpectedly'));
+    });
+
+    res.once('close', () => {
+      if (streamFinished) return;
+      failStream(new Error('Client disconnected'));
+      upstream.destroy?.();
     });
   } catch (err: any) {
     failStream(err);
@@ -2862,7 +3030,7 @@ app.post('/api/chat/stream', async (req, res) => {
 });
 
 // OpenAI-compatible streaming and non-streaming completions endpoints
-app.post(['/v1/chat/completions', '/v1/completions'], async (req: Request, res: Response) => {
+asyncPost(['/v1/chat/completions', '/v1/completions'], async (req: Request, res: Response) => {
   const { user, db, apiKey } = await getAuthContext(req);
   if (!user) return res.status(401).json({ error: { message: "Auth required", type: "authentication_error", code: "invalid_api_key" }});
   if (!apiKey) return res.status(400).json({ error: { message: "An API key is required", type: "invalid_request_error", code: "missing_api_key" }});
@@ -2884,6 +3052,9 @@ app.post(['/v1/chat/completions', '/v1/completions'], async (req: Request, res: 
   ));
   if (isLegacyCompletion && !validPrompt) {
     return res.status(400).json({ error: { message: "Prompt must be null, a string, or an array of strings or tokens", type: "invalid_request_error", code: "invalid_prompt" }});
+  }
+  if (!isLegacyCompletion && !hasValidMessages(messages)) {
+    return res.status(400).json({ error: { message: "Messages must be a non-empty array with valid content", type: "invalid_request_error", code: "invalid_messages" }});
   }
 
   if (requestedModelValue !== undefined && typeof requestedModelValue !== 'string') {
@@ -3022,11 +3193,17 @@ app.post(['/v1/chat/completions', '/v1/completions'], async (req: Request, res: 
     }));
     return res.status(429).json({ error: { message: `Too many concurrent requests for ${user.name} using model ${modelId} from provider ${provider.name}`, type: "queue_full" }});
   }
+  let queueReleased = false;
+  const releaseQueue = () => {
+    if (queueReleased) return;
+    queueReleased = true;
+    requestQueue.dequeue(queueKey);
+  };
 
   const isStreaming = stream === true;
   const inputTokens = isLegacyCompletion ? estimatePromptTokens(prompt) : estimateTokens(messages);
   if (inputTokens > MAX_INPUT_TOKENS) {
-    requestQueue.dequeue(queueKey);
+    releaseQueue();
     return res.status(400).json({ error: { message: `Input exceeds ${MAX_INPUT_TOKENS.toLocaleString()} token limit (${inputTokens.toLocaleString()} tokens estimated)`, type: "invalid_request_error" }});
   }
 
@@ -3040,6 +3217,8 @@ app.post(['/v1/chat/completions', '/v1/completions'], async (req: Request, res: 
       : buildProviderChatBody(req.body, modelId, messages, isStreaming), {
       ...providerRequestConfig(providerTarget),
       headers: { 'Authorization': `Bearer ${resolveProviderApiKey(provider)}` },
+      timeout: PROVIDER_INFERENCE_TIMEOUT_MS,
+      maxContentLength: PROVIDER_INFERENCE_MAX_BYTES,
       ...(isStreaming ? { responseType: 'stream' } : {})
     });
 
@@ -3047,18 +3226,46 @@ app.post(['/v1/chat/completions', '/v1/completions'], async (req: Request, res: 
       const upstream = response.data;
       const sseDecoder = new StringDecoder('utf8');
       let sseBuffer = '';
-      let assistantContent = '';
+      let outputCharacters = 0;
       let upstreamInputTokens: number | undefined;
       let upstreamOutputTokens: number | undefined;
       let streamFinished = false;
+      let streamBytes = 0;
+      let waitingForDrain = false;
+
+      const resumeUpstream = () => {
+        waitingForDrain = false;
+        if (!streamFinished) upstream.resume?.();
+      };
+
+      const writeStream = (data: Buffer | string) => {
+        if (res.writableEnded || res.destroyed) return;
+        if (!res.write(data) && !waitingForDrain) {
+          waitingForDrain = true;
+          upstream.pause?.();
+          res.once('drain', resumeUpstream);
+        }
+      };
+
+      const streamTimeout = setTimeout(() => {
+        finishStreamSafely(false, new Error('Provider stream timed out'));
+        upstream.destroy?.();
+      }, PROVIDER_INFERENCE_TIMEOUT_MS);
+      streamTimeout.unref?.();
+
+      const stopStreamResources = () => {
+        clearTimeout(streamTimeout);
+        res.off('drain', resumeUpstream);
+      };
 
       const finishStream = async (succeeded: boolean, error?: Error) => {
         if (streamFinished) return;
         streamFinished = true;
-        requestQueue.dequeue(queueKey);
+        stopStreamResources();
+        releaseQueue();
 
         const recordedInputTokens = upstreamInputTokens ?? inputTokens;
-        const outputTokens = upstreamOutputTokens ?? Math.ceil(assistantContent.length / 4);
+        const outputTokens = upstreamOutputTokens ?? Math.ceil(outputCharacters / 4);
         const duration = Date.now() - startTime;
         const inputCost = (recordedInputTokens / 1_000_000) * inputPricePerM;
         const outputCost = (outputTokens / 1_000_000) * outputPricePerM;
@@ -3115,10 +3322,19 @@ app.post(['/v1/chat/completions', '/v1/completions'], async (req: Request, res: 
         }));
 
         if (error && !res.writableEnded && !res.destroyed) {
-          res.write(`data: ${JSON.stringify({ error: { message: error.message, type: 'internal_error', code: 'internal_error' } })}\n\n`);
+          writeStream(`data: ${JSON.stringify({ error: { message: error.message, type: 'internal_error', code: 'internal_error' } })}\n\n`);
         }
         if (!res.writableEnded && !res.destroyed) res.end();
       };
+
+      function finishStreamSafely(succeeded: boolean, error?: Error): void {
+        void finishStream(succeeded, error).catch((finishError: any) => {
+          stopStreamResources();
+          releaseQueue();
+          console.error('API stream completion failed:', finishError);
+          if (!res.destroyed) res.destroy(finishError);
+        });
+      }
 
       const processSseLine = (line: string) => {
         if (!line.startsWith('data:')) return false;
@@ -3129,9 +3345,10 @@ app.post(['/v1/chat/completions', '/v1/completions'], async (req: Request, res: 
           const json = JSON.parse(rawData);
           const choice = json.choices?.[0] || {};
           const delta = choice.delta || {};
-          assistantContent += isLegacyCompletion
+          const content = isLegacyCompletion
             ? choice.text || ''
             : delta.content || delta.reasoning_content || delta.thinking || delta.reasoning || '';
+          if (typeof content === 'string') outputCharacters += content.length;
           if (typeof json.usage?.prompt_tokens === 'number') upstreamInputTokens = json.usage.prompt_tokens;
           if (typeof json.usage?.completion_tokens === 'number') upstreamOutputTokens = json.usage.completion_tokens;
         } catch (e) {}
@@ -3146,33 +3363,52 @@ app.post(['/v1/chat/completions', '/v1/completions'], async (req: Request, res: 
 
       upstream.on('data', (chunk: Buffer | string) => {
         if (streamFinished) return;
-        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-        if (!res.writableEnded && !res.destroyed) res.write(buffer);
+        try {
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          streamBytes += buffer.length;
+          if (streamBytes > PROVIDER_INFERENCE_MAX_BYTES) {
+            finishStreamSafely(false, new Error('Provider stream exceeded the response size limit'));
+            upstream.destroy?.();
+            return;
+          }
+          writeStream(buffer);
 
-        sseBuffer += sseDecoder.write(buffer);
-        const lines = sseBuffer.split(/\r?\n/);
-        sseBuffer = lines.pop() || '';
-        if (lines.some(processSseLine)) {
-          void finishStream(true);
-          upstream.destroy();
+          sseBuffer += sseDecoder.write(buffer);
+          const lines = sseBuffer.split(/\r?\n/);
+          sseBuffer = lines.pop() || '';
+          if (lines.some(processSseLine)) {
+            finishStreamSafely(true);
+            upstream.destroy?.();
+          }
+        } catch (error: any) {
+          finishStreamSafely(false, error);
+          upstream.destroy?.();
         }
       });
 
       upstream.once('end', () => {
         if (streamFinished) return;
-        sseBuffer += sseDecoder.end();
-        if (sseBuffer.trim()) processSseLine(sseBuffer);
-        void finishStream(true);
+        try {
+          sseBuffer += sseDecoder.end();
+          if (sseBuffer.trim()) processSseLine(sseBuffer);
+          finishStreamSafely(true);
+        } catch (error: any) {
+          finishStreamSafely(false, error);
+        }
       });
 
       upstream.once('error', (error: Error) => {
-        void finishStream(false, error);
+        finishStreamSafely(false, error);
+      });
+
+      upstream.once('close', () => {
+        if (!streamFinished) finishStreamSafely(false, new Error('Provider stream closed unexpectedly'));
       });
 
       res.once('close', () => {
         if (streamFinished) return;
-        void finishStream(false, new Error('Client disconnected'));
-        upstream.destroy();
+        finishStreamSafely(false, new Error('Client disconnected'));
+        upstream.destroy?.();
       });
       return;
     }
@@ -3190,7 +3426,7 @@ app.post(['/v1/chat/completions', '/v1/completions'], async (req: Request, res: 
     const inputCost = (recordedInputTokens / 1_000_000) * inputPricePerM;
     const outputCost = (outputTokens / 1_000_000) * outputPricePerM;
 
-    requestQueue.dequeue(queueKey);
+    releaseQueue();
 
     res.locals.log = {
       ...res.locals.log,
@@ -3247,7 +3483,7 @@ app.post(['/v1/chat/completions', '/v1/completions'], async (req: Request, res: 
       queue: { size: requestQueue.getQueueSize(queueKey), limit: queueMaxSize }
     });
   } catch (err: any) {
-    requestQueue.dequeue(queueKey);
+    releaseQueue();
     res.locals.log = { ...res.locals.log, error: err.message };
     const providerUnavailable = err instanceof ProviderUrlError;
     res.status(providerUnavailable ? 502 : 500).json({
@@ -3261,7 +3497,7 @@ app.post(['/v1/chat/completions', '/v1/completions'], async (req: Request, res: 
 });
 
 // --- USAGE LOGIC ---
-app.get('/api/usage', async (req, res) => {
+asyncGet('/api/usage', async (req, res) => {
   const { user, db } = await getAuthContext(req);
   if (!user) return res.status(401).json({ detail: "Auth required" });
 
@@ -3314,6 +3550,30 @@ app.get('/api/usage', async (req, res) => {
   res.json(result);
 });
 
+function handleRequestError(error: unknown, req: Request, res: Response, next: NextFunction) {
+  const err = error instanceof Error ? error : new Error(String(error));
+  if (!res.locals.requestErrorLogged) {
+    res.locals.requestErrorLogged = true;
+    console.error('Request failed:', err);
+  }
+  res.locals.log = { ...res.locals.log, error: err.message };
+
+  if (res.headersSent) return next(err);
+  if (res.writableEnded || res.destroyed) return;
+
+  const requestedStatus = (error as any)?.status ?? (error as any)?.statusCode;
+  const status = Number.isInteger(requestedStatus) && requestedStatus >= 400 && requestedStatus < 500
+    ? requestedStatus
+    : 500;
+  const message = status < 500 ? err.message : 'Internal server error';
+  if (req.path.startsWith('/v1/')) {
+    return sendOpenAiError(res, status, message, status < 500 ? 'invalid_request_error' : 'internal_error', status < 500 ? 'invalid_request' : 'internal_error');
+  }
+  return res.status(status).json({ detail: message });
+}
+
+app.use(handleRequestError);
+
 // --- VITE MIDDLEWARE ---
 let server: ReturnType<typeof app.listen> | null = null;
 
@@ -3341,9 +3601,26 @@ async function startServer() {
     });
   }
 
-  server = app.listen(Number(PORT), '0.0.0.0', () => {
-    console.log(`Server running at http://localhost:${PORT}`);
+  // API errors are caught by the earlier boundary; this second registration
+  // covers Vite/static middleware that is installed only during startup.
+  app.use(handleRequestError);
+
+  const listeningServer = app.listen(Number(PORT), '0.0.0.0');
+  server = listeningServer;
+  await new Promise<void>((resolve, reject) => {
+    const onError = (error: Error) => {
+      listeningServer.off('listening', onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      listeningServer.off('error', onError);
+      listeningServer.on('error', error => console.error('HTTP server error:', error));
+      resolve();
+    };
+    listeningServer.once('error', onError);
+    listeningServer.once('listening', onListening);
   });
+  console.log(`Server running at http://localhost:${PORT}`);
 
   // GC stale queue items every 60 seconds (max age 10 minutes)
   setInterval(() => {
@@ -3374,7 +3651,10 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 // Export app for testing; only auto-start when not in test mode
 export { app, ensureDefaults };
 if (process.env.NODE_ENV !== 'test') {
-  startServer();
+  void startServer().catch(error => {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  });
 } else {
   // Initialize DB defaults for tests without starting the HTTP server
   (async () => {

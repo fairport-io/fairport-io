@@ -98,6 +98,19 @@ describe('POST /api/auth/login', () => {
     expect(res.status).toBe(401);
   });
 
+  it.each([
+    { username: 42, password: 'password123' },
+    { username: 'login@example.com', password: 42 },
+    { username: 'login@example.com' },
+  ])('rejects non-string or missing credentials with 400', async (body) => {
+    const res = await request(app)
+      .post('/api/auth/login')
+      .send(body);
+
+    expect(res.status).toBe(400);
+    expect(res.body.detail).toBe('Username and password must be strings.');
+  });
+
   it('rejects OAuth-only user with SSO message', async () => {
     // OAuth-only users have empty password_hash set during OAuth callback.
     // Testing this requires direct DB manipulation (clearing password_hash),
@@ -161,6 +174,24 @@ describe('GET /api/config', () => {
       provider.base_url === undefined &&
       provider.allow_private === undefined
     )).toBe(true);
+  });
+
+  it('returns 500 for an unexpected async route failure and remains usable', async () => {
+    const { PGliteAdapter } = await import('../../src/db/pglite-adapter');
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const loadSpy = vi.spyOn(PGliteAdapter.prototype, 'load').mockRejectedValueOnce(new Error('database unavailable'));
+
+    try {
+      const failed = await request(app).get('/api/config');
+      expect(failed.status).toBe(500);
+      expect(failed.body).toEqual({ detail: 'Internal server error' });
+    } finally {
+      loadSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
+
+    const healthy = await request(app).get('/api/config');
+    expect(healthy.status).toBe(200);
   });
 });
 

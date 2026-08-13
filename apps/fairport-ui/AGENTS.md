@@ -125,6 +125,7 @@ The following security issues were identified and fixed:
 
 - `POST /v1/completions` shares the chat endpoint's authentication, provider selection, limits, queue, logging, and usage accounting.
 - Legacy `prompt` requests and parameters are forwarded to the selected provider's `/completions`; JSON and SSE responses are relayed unchanged.
+- Chat endpoints validate `messages` before token estimation; prompt-only requests sent to `/v1/chat/completions` return `400 invalid_messages` instead of crashing the process.
 
 ## Chat Stream Robustness (2026-07-13)
 
@@ -133,7 +134,16 @@ Hardened `/api/chat/stream` upstream SSE handling:
 - Buffers partial upstream `data:` lines across Node stream chunks before parsing.
 - Treats upstream `end` as a successful finish if `[DONE]` was not observed, so the per-provider queue is released.
 - Handles upstream stream `error` events and flushes SSE headers immediately.
+- Stops and dequeues upstream work when the client disconnects, honors downstream backpressure, and applies five-minute request/stream timeouts plus a 64 MiB response limit.
+- Contains asynchronous persistence and stream-callback failures so they close or error the request without becoming unhandled process rejections.
 - Added `tests/server/chat-stream.test.ts` for split SSE chunk compatibility.
+
+## Server Error Containment (2026-08-12)
+
+- Every asynchronous Express route forwards rejected promises to a final error handler. Failures before headers return a generic JSON `500` (OpenAI error shape under `/v1`); failures after streaming begins close the partial response.
+- Login credentials, provider secrets/rate limits, repeated search parameters, and chat message content are runtime-validated before string or array operations.
+- PostgreSQL pool errors are logged instead of becoming unhandled EventEmitter errors, and failed loads always release their checked-out client.
+- Expired OAuth state/code entries are swept, pending entries are capped at 10,000, and startup failures are logged and exited through the controlled startup path.
 
 ## Signup Allowlist (2026-07-14)
 
