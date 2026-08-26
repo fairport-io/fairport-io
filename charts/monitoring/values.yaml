@@ -52,6 +52,7 @@ kube-prometheus-stack:
     sidecar:
       datasources:
         enabled: true
+        searchNamespace: ALL
 
   prometheus-node-exporter:
     service:
