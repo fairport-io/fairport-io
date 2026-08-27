@@ -49,7 +49,11 @@ log-dhcp
 From the kube control-plane:
 
 ```shell
+# Check workflow status and if its stuck
 fpk -n provisioning get wf <workflow> -o yaml
+
+# Check tinkerbell's logs
+fpk -n provisioning logs <tinkerbell pod>
 ```
 
 ### System logs
