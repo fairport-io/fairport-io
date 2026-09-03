@@ -193,12 +193,12 @@ spec:
               ALL_CONTENT="$INSTALLER_HELMFILE_CONTENT $INSTALLER_VALUES_CONTENT $VALUES_CONFIG_CONTENT $VALUES_SECRET_CONTENT"
               if [ "$ALL_CONTENT" != "$LAST_ALL_CONTENT" ]; then
                   echo "[INFO] Detected changes, applying updates..."
-                  echo "$INSTALLER_HELMFILE_CONTENT" > helmfile.yaml
+                  echo "$INSTALLER_HELMFILE_CONTENT" > helmfile.yaml.gotmpl
                   echo "$INSTALLER_VALUES_CONTENT" > values.yaml
                   echo "$VALUES_CONFIG_CONTENT" >> values.yaml
                   echo "$VALUES_SECRET_CONTENT" | base64 -d >> values.yaml
 
-                  helmfile sync $HELMFILE_FLAGS -f helmfile.yaml
+                  helmfile sync $HELMFILE_FLAGS -f helmfile.yaml.gotmpl
                   [ $? -ne 0 ] && echo "[ERROR] helmfile sync failed" && exit 1
                   echo "[INFO] helmfile sync succeeded."
                   LAST_ALL_CONTENT="$ALL_CONTENT"
