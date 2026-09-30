@@ -8,7 +8,7 @@ A container with Webtop (https://docs.linuxserver.io/images/docker-webtop/), pi 
 ```
 docker run \     
     -d \        
-    --name webtop-hermes \
+    --name computer-use-webtop \
     --restart unless-stopped \
     --shm-size=1gb \
     -e SELKIES_MANUAL_WIDTH=1000 \
