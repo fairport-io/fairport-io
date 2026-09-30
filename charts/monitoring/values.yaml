@@ -33,6 +33,12 @@ kube-prometheus-stack:
              requests:
                storage: 5Gi
   grafana:
+    additionalDataSources:
+      - name: VictoriaTraces
+        uid: victoriatraces
+        type: jaeger
+        access: proxy
+        url: 'http://{{ .Release.Name }}-vt-cluster-vtselect.{{ .Release.Namespace }}.svc.cluster.local:10471/select/jaeger'
     grafana.ini:
       # Disable Password Login for Simplicity
       auth:
