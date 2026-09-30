@@ -1,0 +1,8 @@
+#!/bin/sh
+
+sed -i -E \
+    -e "/LLAMA_BASE_URL environment variable/s|\"baseUrl\": \"[^\"]*\"|\"baseUrl\": \"$LLAMA_BASE_URL\"|" \
+    -e "/LLAMA_BASE_MODEL environment variable/s|\"(id|name)\": \"[^\"]*\"|\"\\1\": \"$LLAMA_BASE_MODEL\"|" \
+    "$HOME/.pi/agent/models.json"
+
+pi $*
