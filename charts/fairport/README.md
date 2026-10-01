@@ -34,8 +34,8 @@ helm delete --namespace fairport fairport
 | [Networking](#networking) 🌐         | ✅ Enabled     | `cilium`                                                            | High performance network CNI providing encryption-in-transit, network policies, service mesh, and ingress/egress gateways |
 | [Networking](#networking) 🌐         | ✅ Enabled     | `traefik`                                                           | Provides TLS-enabled ingress and API gateway for Kubernetes clusters if Cilium cannot be used |
 | [Monitoring](#monitoring) 📊         | ✅ Enabled     | [kube-prometheus-stack](../monitoring/README.md)                    | Metric collector and database with service-discovery, visualization, and alerting components |
-| [Monitoring](#monitoring) 📊         | ✅ Enabled     | [victoria-logs-cluster](../monitoring/README.md)                    | Log aggregation and analysis platform with service-discovery, visualization, and alerting components |
-| [Monitoring](#monitoring) 📊         | ✅ Enabled     | [victoria-traces-cluster](../monitoring/README.md)                  | Distributed tracing platform with service-discovery, visualization, and alerting components |
+| [Monitoring](#monitoring) 📊         | ❌ Disabled    | [victoria-logs-cluster](../monitoring/README.md)                    | Log aggregation and analysis platform with service-discovery, visualization, and alerting components |
+| [Monitoring](#monitoring) 📊         | ❌ Disabled    | [victoria-traces-cluster](../monitoring/README.md)                  | Distributed tracing platform with service-discovery, visualization, and alerting components |
 | [Job Scheduling](#job-scheduling) ⏱️ | ✅ Enabled     | [slurm](../slurm/README.md)                                         | HPC job scheduler |
 | [Job Scheduling](#job-scheduling) ⏱️ | ✅ Enabled     | [slurm-operator](../slurm-operator/README.md)                       | HPC job scheduler component |
 | [Job Scheduling](#job-scheduling) ⏱️ | ✅ Enabled     | [kueue](../kueue/README.md)                                         | Kubernetes native job scheduler extension |
