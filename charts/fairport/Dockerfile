@@ -11,3 +11,4 @@ RUN helm dependency update && \
 
 FROM build AS test
 RUN helm template fairport . --namespace fairport > /dev/null
+RUN sh test-enabled.sh

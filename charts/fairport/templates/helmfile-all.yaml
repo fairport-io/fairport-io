@@ -36,7 +36,28 @@ metadata:
   name: {{ .Values.fairport.installer.name }}
 data:
   helmfile.yaml: |
-    {{- .Values.helmfile | toYaml | nindent 4 }}
+    {{- with omit .Values.helmfile "releases" }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    releases:
+    {{ printf "{{- $helmfile := %q | fromYaml -}}" (dict "releases" .Values.helmfile.releases | toYaml) }}
+    {{ `{{- $allValues := readFile "values.yaml" | fromYaml -}}` }}
+    {{ `{{- $releases := list -}}` }}
+    {{ `{{- range $helmfile.releases -}}` }}
+    {{ `{{- if ne (dig .name "enabled" true $allValues) false -}}` }}
+    {{ `{{- if hasKey . "needs" -}}` }}
+    {{ `{{- $needs := list -}}` }}
+    {{ `{{- range .needs -}}` }}
+    {{ `{{- if ne (dig (last (splitList "/" .)) "enabled" true $allValues) false -}}` }}
+    {{ `{{- $needs = append $needs . -}}` }}
+    {{ `{{- end -}}` }}
+    {{ `{{- end -}}` }}
+    {{ `{{- $_ := set . "needs" $needs -}}` }}
+    {{ `{{- end -}}` }}
+    {{ `{{- $releases = append $releases . -}}` }}
+    {{ `{{- end -}}` }}
+    {{ `{{- end -}}` }}
+    {{ `{{ tpl (toYaml $releases) . | nindent 2 }}` }}
   values.yaml: |
     {{ if .Values.values }}
     {{ .Values.values | toJson }}
@@ -198,7 +219,7 @@ spec:
                   echo "$VALUES_CONFIG_CONTENT" >> values.yaml
                   echo "$VALUES_SECRET_CONTENT" | base64 -d >> values.yaml
 
-                  helmfile sync $HELMFILE_FLAGS -f helmfile.yaml.gotmpl
+                  helmfile sync --allow-no-matching-release $HELMFILE_FLAGS -f helmfile.yaml.gotmpl
                   [ $? -ne 0 ] && echo "[ERROR] helmfile sync failed" && exit 1
                   echo "[INFO] helmfile sync succeeded."
                   LAST_ALL_CONTENT="$ALL_CONTENT"

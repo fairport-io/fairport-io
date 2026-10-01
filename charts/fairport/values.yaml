@@ -34,6 +34,8 @@ fairport:
 ################################
 # Values for Helmfile Releases #
 ################################
+# Under values, <release>.enabled: false skips the entire release, including CRDs.
+# Nested enabled flags only configure subcharts within an enabled release.
 #values: {}
 # demo-inference:
 #   enabled: true
