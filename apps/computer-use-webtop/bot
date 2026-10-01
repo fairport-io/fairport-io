@@ -1,0 +1,6 @@
+#!/usr/bin/with-contenv sh
+
+sed -i "s|LLAMA_BASE_URL|$LLAMA_BASE_URL|g" $HOME/.pi/agent/models.json
+sed -i "s|LLAMA_BASE_MODEL|$LLAMA_BASE_MODEL|g" $HOME/.pi/agent/models.json
+
+/config/.pi/agent/bin/pi $*

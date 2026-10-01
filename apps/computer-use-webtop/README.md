@@ -19,5 +19,4 @@ docker run \
     ghcr.io/fairport-io/apps/computer-use-webtop:0.0.1
 ```
 2. Navigate to https://localhost:3001 in your web browser
-3. Launch the MATE terminal
-4. Run commands with the `computer-use` wrapper: `use-computer "Open chromium for me on my desktop"`
+3. Run commands in the MATE Terminal with the `bot` bot: `use-computer "Open chromium for me on my desktop"`
