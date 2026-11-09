@@ -1,4 +1,4 @@
-import copy, json, os, re, sys
+import copy, json, os, re, subprocess, sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # The chart's guest values (options and pod), rendered next to this file
@@ -10,6 +10,8 @@ FIELDS = re.compile(f"([{''.join(OPTS)}])(\\d+)")
 DEFAULTS = {k: opt["default"] for k, opt in OPTS.items()}
 # One file per user (the users ConfigMap), in authorized_keys format. Read on every login, so edits apply without a restart.
 USERS = "/etc/users"
+# The authorizedKeysCommand value, rendered next to this file only when it's set
+COMMAND = os.path.join(os.path.dirname(__file__), "authorized-keys-command")
 VALID_USER = re.compile(r"[a-z_][a-z0-9_.-]*")  # no slashes: the name goes into a path
 
 
@@ -35,19 +37,30 @@ def blobs(text):
     return {w for line in text.splitlines() if not line.lstrip().startswith("#") for w in line.split()}
 
 
+def user_keys(user):
+    # The user's entry in the users ConfigMap, plus whatever authorizedKeysCommand prints for them.
+    try:
+        keys = open(f"{USERS}/{user}").read()
+    except OSError:  # not in the users ConfigMap
+        keys = ""
+    # Runs for every key the client offers, uncached; add a cache here if the source is slow or rate limited.
+    if os.path.exists(COMMAND):
+        try:  # stderr isn't captured, so the script's own errors land in this container's log
+            keys += "\n" + subprocess.run([COMMAND, user], stdout=subprocess.PIPE, text=True, timeout=5, check=True).stdout
+        except (OSError, subprocess.SubprocessError) as e:
+            print(f"authorizedKeysCommand failed for {user!r}: {e}", file=sys.stderr)
+    return keys
+
+
 def key_ok(name, offered):
     try:
         user, _ = parse(name)
     except ValueError as e:
         print(f"refusing {name!r}: {e}", file=sys.stderr)  # the user only sees "Permission denied"
         return False
-    if not VALID_USER.fullmatch(user):
+    if not VALID_USER.fullmatch(user):  # checked before the name reaches a path or the command
         return False
-    try:
-        keys = open(f"{USERS}/{user}").read()
-    except OSError:  # not in the users ConfigMap
-        return False
-    return offered.split()[1] in blobs(keys)
+    return offered.split()[1] in blobs(user_keys(user))
 
 
 def typed(s):

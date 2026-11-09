@@ -1,4 +1,7 @@
+{{- $containerssh := .Values.containerssh -}}
+{{- if $containerssh.enabled }}
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: {{ .Values.guest.pod.metadata.namespace }}
+  name: {{ $containerssh.guest.pod.metadata.namespace }}
+{{- end }}

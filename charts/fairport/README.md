@@ -41,6 +41,7 @@ helm delete --namespace fairport fairport
 | [Job Scheduling](#job-scheduling) ⏱️ | ✅ Enabled     | [kueue](../kueue/README.md)                                         | Kubernetes native job scheduler extension |
 | [Access Control](#access-control) 🔐 | ✅ Enabled     | [rancher](../rancher/README.md)                                     | User authentication and authorization with UI and API components |
 | [Access Control](#access-control) 🔐 | ✅ Enabled     | [kyverno](../kyverno/README.md)                                     | Allows creation of policies to manage user and application access with fine-grained scopes |
+| [Access Control](#access-control) 🔐 | ❌ Disabled    | [containerssh](../containerssh/README.md)                           | SSH server that gives every login its own pod, with CPU, memory, image, and lifetime picked per login |
 | [Certificate Management](#certs)  🔏 | ✅ Enabled     | [cert-manager](../cert-manager/README.md)                           | Manages and generates certificates for applications (internal or external with providers like LetsEncrypt) |
 | [Inference](#inference) 🤖           | ✅ Enabled     | [kubeai](../kubeai/README.md)                                       | Extremely simple inference solution capable of running backends like vllm, whisper, ollama |
 | [Inference](#inference) 🤖           | ❌ Disabled    | [production-stack-operator](../production-stack-operator/README.md) | Industry standard backend for VLLM with distributed kv cacheing and intelligent queueing and routing |

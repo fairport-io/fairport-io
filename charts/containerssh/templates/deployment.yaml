@@ -1,3 +1,5 @@
+{{- $containerssh := .Values.containerssh -}}
+{{- if $containerssh.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -23,7 +25,7 @@ spec:
         # Copy the SSH host key from its Secret into the pod, creating the Secret on first start.
         # A Secret volume can't do this: the pod won't start until a mounted Secret exists.
         - name: hostkey
-          image: {{ .Values.images.python }}
+          image: {{ $containerssh.images.python }}
           command: ["python", "/etc/hooks/hostkey.py"]
           volumeMounts:
             - name: config
@@ -33,7 +35,7 @@ spec:
       containers:
         # Run ContainerSSH
         - name: containerssh
-          image: {{ .Values.images.containerssh }}
+          image: {{ $containerssh.images.containerssh }}
           securityContext:
             # Read only container
             readOnlyRootFilesystem: true
@@ -51,7 +53,7 @@ spec:
               readOnly: true
         # Run the auth + config webhooks (keys from the users ConfigMap, shape from the username)
         - name: hooks
-          image: {{ .Values.images.python }}
+          image: {{ $containerssh.images.python }}
           command: ["python", "/etc/hooks/hooks.py"]
           securityContext:
             capabilities:
@@ -69,9 +71,9 @@ spec:
         runAsNonRoot: true
         # One user for every container, so the key the init container writes (mode 600) is readable by ContainerSSH
         runAsUser: 65534
-      nodeSelector: {{ .Values.nodeSelector | toJson }}
-      tolerations: {{ .Values.tolerations | toJson }}
-      affinity: {{ .Values.affinity | toJson }}
+      nodeSelector: {{ $containerssh.nodeSelector | toJson }}
+      tolerations: {{ $containerssh.tolerations | toJson }}
+      affinity: {{ $containerssh.affinity | toJson }}
       volumes:
         # In memory, so the private key never touches the node's disk
         - name: hostkey
@@ -80,6 +82,9 @@ spec:
         - name: config
           configMap:
             name: containerssh-config
+            # Executable, so authorizedKeysCommand can run
+            defaultMode: 0555
         - name: users
           configMap:
             name: containerssh-users
+{{- end }}

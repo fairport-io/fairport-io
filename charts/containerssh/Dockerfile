@@ -9,4 +9,4 @@ RUN sed -i "s|^version: .*|version: $VERSION|g" Chart.yaml && \
     helm package .
 
 FROM build AS test
-RUN helm template containerssh . --namespace containerssh > /dev/null
+RUN helm template containerssh . --namespace containerssh --set containerssh.enabled=true > /dev/null

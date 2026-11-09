@@ -1,3 +1,5 @@
+{{- $containerssh := .Values.containerssh -}}
+{{- if $containerssh.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -6,7 +8,7 @@ metadata:
 data:
   config.yaml: |
     log:
-      level: {{ .Values.logLevel }}
+      level: {{ $containerssh.logLevel }}
     ssh:
       hostkeys:
         # Written by the hostkey init container from the containerssh-hostkey Secret (generated on first start)
@@ -17,6 +19,8 @@ data:
         webhook:
           # The authentication server will be running in the same pod, so we use 127.0.0.1
           url: http://127.0.0.1:8080
+          # Default is 2s; leaves headroom for authorizedKeysCommand (5s timeout)
+          timeout: 10s
     # Per-connection pod config (shape from the username) comes from the same sidecar
     configserver:
       url: http://127.0.0.1:8080/config
@@ -37,7 +41,7 @@ data:
       # The hooks replace this pod on every login (from guest.pod); it's here because ContainerSSH needs a base config
       pod:
         metadata:
-          namespace: {{ .Values.guest.pod.metadata.namespace }}
+          namespace: {{ $containerssh.guest.pod.metadata.namespace }}
         spec:
           containers:
             - name: shell
@@ -46,4 +50,9 @@ data:
     {{- .Files.Get "files/hooks.py" | nindent 4 }}
   hostkey.py: |
     {{- .Files.Get "files/hostkey.py" | nindent 4 }}
-  settings.json: {{ toJson .Values.guest | quote }}
+  settings.json: {{ toJson $containerssh.guest | quote }}
+  {{- with $containerssh.authorizedKeysCommand }}
+  authorized-keys-command: |
+    {{- . | nindent 4 }}
+  {{- end }}
+{{- end }}

@@ -115,6 +115,15 @@ helmfile:
     wait: true
     needs: [ "monitoring/monitoring" ]
     values: [ "helmfile-values.yaml.gotmpl" ]
+  - name: containerssh
+    installed: true
+    namespace: containerssh
+    createNamespace: true
+    chart: oci://ghcr.io/fairport-io/charts/containerssh
+    version: 0.0.1
+    atomic: true
+    wait: true
+    values: [ "helmfile-values.yaml.gotmpl" ]
   ##################
   # Job Scheduling #
   ##################
