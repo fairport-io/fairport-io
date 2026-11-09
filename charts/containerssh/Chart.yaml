@@ -1,0 +1,7 @@
+---
+apiVersion: v2
+name: containerssh
+version: "0" # Inherited from the VERSION file when make is run
+description: ContainerSSH, which gives every SSH login its own pod
+annotations:
+  publish-repository: oci://ghcr.io/fairport-io

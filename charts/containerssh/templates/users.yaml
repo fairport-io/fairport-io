@@ -1,0 +1,7 @@
+# Kept out of containerssh-config so adding a user doesn't change the deployment's checksum and roll the pod
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: containerssh-users
+  namespace: {{ .Release.Namespace }}
+data: {{ .Values.users | toJson }}

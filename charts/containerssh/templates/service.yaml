@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: containerssh
+  namespace: {{ .Release.Namespace }}
+  annotations: {{ .Values.service.annotations | toJson }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app: containerssh
+  ports:
+    - protocol: TCP
+      port: {{ .Values.service.port }}
+      targetPort: 2222
+      {{- if .Values.service.nodePort }}
+      nodePort: {{ .Values.service.nodePort }}
+      {{- end }}
