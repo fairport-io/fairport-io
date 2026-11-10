@@ -25,9 +25,6 @@ cat > "$test_dir/templates/check.yaml" <<'EOF'
 {{- $_ := set .Values "runtimeValues" (dict) -}}
 {{- $baseline := tpl $runtime . | fromYaml -}}
 {{- $expected := tpl ((.Files.Get "defaults.yaml" | fromYaml).helmfile | toYaml | replace "env " "print ") . | fromYaml -}}
-{{- $expectedReleases := list -}}
-{{- range $expected.releases -}}{{- if ne (dig "enabled" true .) false -}}{{- $expectedReleases = append $expectedReleases (omit . "enabled") -}}{{- end -}}{{- end -}}
-{{- $_ = set $expected "releases" $expectedReleases -}}
 {{- if not (deepEqual $baseline $expected) -}}{{ fail "missing enabled flags changed releases" }}{{- end -}}
 
 {{- $_ = set .Values "runtimeValues" (dict "kube-vip" (dict "enabled" false "kube-vip" (dict "enabled" true)) "openebs" (dict "enabled" false)) -}}
@@ -50,7 +47,7 @@ cat > "$test_dir/templates/check.yaml" <<'EOF'
 {{- $_ = set .Values "runtimeValues" (dict "containerssh" (dict "enabled" true)) -}}
 {{- $onByName := dict -}}
 {{- range (tpl $runtime . | fromYaml).releases -}}{{- $_ := set $onByName .name . -}}{{- end -}}
-{{- if or (not (hasKey $onByName "containerssh")) (hasKey (index $onByName "containerssh") "enabled") -}}{{ fail "enabled: true did not turn on default-off containerssh" }}{{- end -}}
+{{- if ne (index $onByName "containerssh").installed true -}}{{ fail "enabled: true did not install installed: false containerssh" }}{{- end -}}
 {{- $allDisabled := dict -}}
 {{- range $baseline.releases -}}{{- $_ := set $allDisabled .name (dict "enabled" false) -}}{{- end -}}
 {{- $_ = set .Values "runtimeValues" $allDisabled -}}
