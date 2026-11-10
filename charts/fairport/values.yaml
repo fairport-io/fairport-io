@@ -35,6 +35,7 @@ fairport:
 # Values for Helmfile Releases #
 ################################
 # Under values, <release>.enabled: false skips (does not uninstall) the entire release, including CRDs.
+# A release below with its own enabled: false is skipped unless values sets <release>.enabled: true.
 # Nested enabled flags only configure subcharts within an enabled release.
 #values: {}
 # demo-inference:
@@ -118,6 +119,7 @@ helmfile:
     needs: [ "monitoring/monitoring" ]
     values: [ "helmfile-values.yaml.gotmpl" ]
   - name: containerssh
+    enabled: false   # off unless values.containerssh.enabled: true
     installed: true
     namespace: containerssh
     createNamespace: true

@@ -1,6 +1,6 @@
 ---
 containerssh:
-  enabled: false
+  enabled: true
   images:
     containerssh: containerssh/containerssh:v0.6
     # Runs the hostkey init container and the auth/config webhooks (standard library only)
