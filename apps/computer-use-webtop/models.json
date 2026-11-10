@@ -1,0 +1,16 @@
+{
+  "providers": {
+    "default": {
+      "baseUrl": "LLAMA_BASE_URL",
+      "api": "openai-completions",
+      "apiKey": "local",
+      "models": [
+        {
+          "id": "LLAMA_BASE_MODEL",
+          "name": "LLAMA_BASE_MODEL",
+          "input": ["text", "image"]
+        }
+      ]
+    }
+  }
+}
