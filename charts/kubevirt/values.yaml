@@ -1,0 +1,48 @@
+---
+kubevirt:
+  enabled: true
+  # Registry for every KubeVirt and CDI image. Point it at a mirror on air-gapped clusters.
+  registry: quay.io/kubevirt
+
+  # KubeVirt's spec.configuration (https://kubevirt.io/user-guide/). An override replaces a list whole,
+  # so copy the full list when adding to one.
+  configuration:
+    developerConfiguration:
+      # Beta gates are on by default and alpha gates off. HostDevices (alpha) allows passthrough of the
+      # devices permitted below. Add WorkloadEncryptionTDX for Intel TDX VMs; AMD SEV and SEV-SNP are on already.
+      # Leave Sidecar, HostDisk, DownwardMetrics and Root off: each gives a VM a way into its host.
+      featureGates:
+      - HostDevices
+    # The only host devices VMs can ask for, each passed through whole with VFIO. A device must already
+    # be bound to vfio-pci on its node (see README).
+    permittedHostDevices:
+      pciHostDevices: []
+      # NVIDIA GPUs, bound by the GPU operator's VM mode, which names the resource (kubectl describe node):
+      # - pciVendorSelector: "10DE:1DB6"
+      #   resourceName: nvidia.com/GV100GL_Tesla_V100
+      #   externalResourceProvider: true
+      # Any other accelerator, bound by kernel arguments (IDs from lspci -nn):
+      # - pciVendorSelector: "1234:5678"
+      #   resourceName: example.com/accelerator
+    # On a node drain, live-migrate the VMs that can move and shut down the rest
+    # (a VM with a node-local disk or a passthrough device can't move)
+    evictionStrategy: LiveMigrateIfPossible
+    # Only explicit RoleBindings grant VM access, not the default admin, edit and view roles
+    roleAggregationStrategy: Manual
+    # Run each VM's process under KubeVirt's seccomp profile
+    seccompConfiguration:
+      virtualMachineInstanceProfile:
+        customProfile:
+          localhostProfile: kubevirt/kubevirt.json
+
+  # KubeVirt's spec.workloads: where virt-handler runs, and so where VMs can run
+  workloads: {}
+  #  nodePlacement:
+  #    nodeSelector:
+  #      fairport.io/vm: "true"
+
+  # CDI's spec.config. CDI imports VM disk images into PVCs.
+  cdi:
+    config:
+      featureGates:
+      - HonorWaitForFirstConsumer

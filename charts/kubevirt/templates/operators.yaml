@@ -1,0 +1,7 @@
+{{- $kubevirt := .Values.kubevirt -}}
+{{- if $kubevirt.enabled }}
+{{- /* Upstream operator manifests (see README); only the image registry changes */}}
+{{ .Files.Get "files/kubevirt-operator.yaml" | replace "quay.io/kubevirt" $kubevirt.registry }}
+---
+{{ .Files.Get "files/cdi-operator.yaml" | replace "quay.io/kubevirt" $kubevirt.registry }}
+{{- end }}

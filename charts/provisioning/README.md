@@ -42,6 +42,24 @@ dhcp-boot=tag:tinkerbell, http://10.1.1.2:7171/ipxe/script/${net0/mac}/auto.ipxe
 log-dhcp
 ```
 
+## VM Passthrough
+
+To pass devices to VMs ([kubevirt](../kubevirt/README.md)), image the node with:
+
+- IOMMU on in the firmware: Intel VT-d or AMD-Vi, plus SR-IOV if a device will be split into virtual functions.
+- Kernel arguments: `intel_iommu=on iommu=pt` on Intel, or just `iommu=pt` on AMD (its IOMMU is on whenever the firmware enables it). Add `vfio-pci.ids=<vendor:device>,...` for every accelerator VMs get, with IDs from `lspci -nn`. Leave NVIDIA GPUs out; the GPU operator binds those.
+- If a device's own driver could claim it first, load vfio-pci ahead of it with `softdep <driver> pre: vfio-pci` in `/etc/modprobe.d/vfio.conf`.
+
+Check after boot:
+
+```shell
+dmesg | grep -i -e DMAR -e IOMMU         # the IOMMU is on
+lspci -nnk -d <vendor:device>            # "Kernel driver in use: vfio-pci"
+find /sys/kernel/iommu_groups -type l    # every device, by IOMMU group
+```
+
+A passed-through device should sit in an IOMMU group of its own, or only with its own functions; anything sharing its group goes to the same VM.
+
 ## Troubleshooting
 
 ### Tinkerbell Logs

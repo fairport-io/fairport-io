@@ -54,4 +54,5 @@ helm delete --namespace fairport fairport
 | [Training](#training) 🏋️             | ❌ Disabled    | [mpi-operator](../mpi-operator/README.md)                           | Distributed inference framework for running workloads across nodes |
 | [GPU](#gpu) 🚀                       | ✅ Enabled     | [nvidia-gpu-operator](../nvidia-gpu-operator/README.md)             | Installs, manages, and updates nvidia components (device plugin, exporter, etc.) |
 | [GPU](#gpu) 🚀                       | ❌ Disabled    | [amd-gpu-operator](../amd-gpu-operator/README.md)                   | Installs, manages, and updates amd components (device plugin, exporter, etc.) |
+| [Virtualization](#virtualization) 💻 | ❌ Disabled    | [kubevirt](../kubevirt/README.md)                                   | Runs virtual machines next to containers, with GPU and accelerator passthrough |
 | [Database](#database) 🗄️             | ✅ Enabled     | [cloudnative-pg](../cloudnative-pg/README.md)                       | A Kubernetes native implementation of Postgres with high availability and speed optimizations |

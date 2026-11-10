@@ -1,0 +1,23 @@
+{{- $kubevirt := .Values.kubevirt -}}
+{{- if $kubevirt.enabled }}
+apiVersion: kubevirt.io/v1
+kind: KubeVirt
+metadata:
+  name: kubevirt
+  namespace: kubevirt
+  annotations:
+    # Deleting this tears KubeVirt down, so uninstalling the release leaves it
+    helm.sh/resource-policy: keep
+spec:
+  imageRegistry: {{ $kubevirt.registry }}
+  imagePullPolicy: IfNotPresent
+  # Refuse to remove KubeVirt while VMs still exist
+  uninstallStrategy: BlockUninstallIfWorkloadsExist
+  certificateRotateStrategy: {}
+  customizeComponents: {}
+  workloadUpdateStrategy: {}
+  configuration: {{- toYaml $kubevirt.configuration | nindent 4 }}
+  {{- with $kubevirt.workloads }}
+  workloads: {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

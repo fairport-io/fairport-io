@@ -1,0 +1,31 @@
+{{- $kubevirt := .Values.kubevirt -}}
+{{- if $kubevirt.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cdi
+  labels:
+    cdi.kubevirt.io: ""
+  annotations:
+    # Uninstalling the release must not delete CDI's namespace and everything running in it
+    helm.sh/resource-policy: keep
+---
+apiVersion: cdi.kubevirt.io/v1beta1
+kind: CDI
+metadata:
+  name: cdi
+  annotations:
+    # Deleting this tears CDI down, so uninstalling the release leaves it
+    helm.sh/resource-policy: keep
+spec:
+  imagePullPolicy: IfNotPresent
+  # Refuse to remove CDI while DataVolumes still exist
+  uninstallStrategy: BlockUninstallIfWorkloadsExist
+  config: {{- toYaml $kubevirt.cdi.config | nindent 4 }}
+  infra:
+    nodeSelector:
+      kubernetes.io/os: linux
+  workload:
+    nodeSelector:
+      kubernetes.io/os: linux
+{{- end }}
