@@ -23,10 +23,16 @@ On clusters that enforce Pod Security, label that namespace `pod-security.kubern
 
 ### Accelerators
 
-A VM gets each device whole, through VFIO. A device type needs two things: bound to `vfio-pci` on its nodes, and listed in `configuration.permittedHostDevices` ([values.yaml](values.yaml) has examples).
+A VM gets each device whole, through VFIO, from a node where the device is bound to `vfio-pci`. `permittedHostDevices` is unset, so a VM can get any device its node offers.
 
-- **NVIDIA GPUs**: the GPU operator binds them. Turn on its VM mode with `nvidia-gpu-operator.nvidia-gpu-operator.sandboxWorkloads.enabled: true` (it may restart GPU operator pods, so pick a quiet time), then label each VM node `nvidia.com/gpu.workload.config=vm-passthrough`. That node's GPUs then serve only VMs, under the resource names shown by `kubectl describe node`.
-- **Everything else** (d-matrix AIPs, other accelerators, RDMA NICs or their SR-IOV virtual functions): bind them with kernel arguments when imaging the node, see [provisioning](../provisioning/README.md#vm-passthrough).
+- **NVIDIA GPUs**, every model: label each node that should serve VMs.
+
+  ```shell
+  kubectl label node <node> fairport.io/vm=true nvidia.com/gpu.deploy.operands=false
+  ```
+
+  The second label makes the GPU operator leave the node alone; every other node keeps serving containers and keeps its automatic driver upgrades. On labeled nodes, this chart binds every NVIDIA GPU to `vfio-pci` with NVIDIA's own vfio-manager, then NVIDIA's device plugin offers each one under its model name, like `nvidia.com/GH100_H100_SXM5_80GB`. On HGX boards it binds the NVSwitches too, so one VM can take the whole board (see the example). If a GPU stays with the host driver, reboot the node. To give a node back to containers, move its VMs off, remove both labels, and reboot it. Leave the GPU operator's own VM mode (`sandboxWorkloads`) off: it would stop automatic driver upgrades on every GPU node.
+- **Everything else** (any other accelerator, RDMA NICs or their SR-IOV virtual functions): bind them with kernel arguments when imaging the node (see [provisioning](../provisioning/README.md#vm-passthrough)), then list them in `configuration.permittedHostDevices` so KubeVirt offers them. Any list is an allowlist for every device, so list the cluster's NVIDIA GPUs there too, with `externalResourceProvider: true` ([values.yaml](values.yaml) shows the format).
 
 A VM asks for a device by its resource name:
 
@@ -49,7 +55,7 @@ Each VM opts in. AMD SEV and SEV-SNP need no cluster setting: on nodes whose CPU
 
 Enforced now:
 
-- VMs only get devices listed in `permittedHostDevices`.
+- Your customer decides which devices each VM gets; tenants never write VM specs. KubeVirt passes through any device a node offers unless `permittedHostDevices` is set, which makes it an allowlist.
 - Features that give a VM a way into its host stay off (Sidecar, HostDisk, DownwardMetrics, Root), and each VM's process runs as non-root under KubeVirt's seccomp profile.
 - VM permissions come only from explicit RoleBindings, not the default admin, edit and view roles.
 - KubeVirt and CDI refuse to be removed while VMs or DataVolumes exist, and uninstalling the release leaves their CRDs, custom resources and the `cdi` namespace.
@@ -78,7 +84,7 @@ Tenant `tenant-a` gets one VM with 8 cores, 32 GiB of memory, a 50 GiB Ubuntu 24
 
 **1. Prepare the node.** Image it with the IOMMU on and the accelerator bound to `vfio-pci` (see [provisioning](../provisioning/README.md#vm-passthrough)). On the node, `lspci -nnk -d 1234:5678` should show `Kernel driver in use: vfio-pci`.
 
-**2. Turn on KubeVirt and permit the device.** Run `kubectl -n fairport edit configmap fairport-installer-values` and add this to its `values.yaml`, keeping anything already there:
+**2. Turn on KubeVirt and list the device.** Run `kubectl -n fairport edit configmap fairport-installer-values` and add this to its `values.yaml`, keeping anything already there:
 
 ```yaml
 kubevirt:
@@ -90,6 +96,8 @@ kubevirt:
         - pciVendorSelector: "1234:5678"
           resourceName: example.com/accelerator
 ```
+
+Listing a device makes `permittedHostDevices` an allowlist for every device, so if VMs on this cluster also get NVIDIA GPUs, list those too (see the NVIDIA steps below).
 
 On a cluster installed with `FAIRPORT_CONFIG_FILE`, add it to that file and under `values:` in the `fairport` HelmChart in `kube-system` instead; the installer can't combine the two sources yet.
 
@@ -179,38 +187,50 @@ kubectl -n tenant-a get vmi vm-1 -o jsonpath='{.status.interfaces[0].ipAddress}{
 
 The tenant connects from the bastion with `ssh ubuntu@<that address>`. Admins can also use the serial console with `virtctl -n tenant-a console vm-1`, and leave it with `Ctrl+]`.
 
-**For an NVIDIA GPU instead,** let the GPU operator bind it:
+**For an NVIDIA GPU instead,** the node still needs its IOMMU on (step 1) but nothing bound by kernel arguments. Leave `permittedHostDevices` out of step 2, then:
 
-1. Add this to the same ConfigMap:
-
-   ```yaml
-   nvidia-gpu-operator:
-     nvidia-gpu-operator:
-       sandboxWorkloads:
-         enabled: true
-   ```
-
-2. Label the node: `kubectl label node <node> nvidia.com/gpu.workload.config=vm-passthrough`.
-3. Permit the GPU under the resource name the node now offers (`kubectl get node <node> -o jsonpath='{.status.allocatable}'`), with `externalResourceProvider: true`:
+1. Label the node: `kubectl label node <node> fairport.io/vm=true nvidia.com/gpu.deploy.operands=false`.
+2. Read the GPU's resource name off the node: `kubectl get node <node> -o jsonpath='{.status.allocatable}'` shows names like `nvidia.com/GH100_H100_SXM5_80GB`. Nothing needs permitting while `permittedHostDevices` is unset. If the cluster lists other accelerators there, add the GPU to that list too:
 
    ```yaml
-   kubevirt:
-     kubevirt:
-       configuration:
-         permittedHostDevices:
-           pciHostDevices:
-           - pciVendorSelector: "10DE:1DB6"
-             resourceName: nvidia.com/GV100GL_Tesla_V100
-             externalResourceProvider: true
+   - pciVendorSelector: "10DE:2330"
+     resourceName: nvidia.com/GH100_H100_SXM5_80GB
+     externalResourceProvider: true
    ```
 
-4. In the VM, replace `hostDevices` with:
+3. In the VM, replace `hostDevices` with:
 
    ```yaml
    gpus:
    - name: gpu0
-     deviceName: nvidia.com/GV100GL_Tesla_V100
+     deviceName: nvidia.com/GH100_H100_SXM5_80GB
    ```
+
+**For a whole HGX board,** give one VM every GPU and NVSwitch on the node, and let the VM run NVIDIA Fabric Manager, which wires up NVLink between the GPUs:
+
+1. Label the node as above. Its NVSwitches get bound along with its GPUs and show up next to them in `kubectl get node <node> -o jsonpath='{.status.allocatable}'`, like `nvidia.com/GH100_H100_NVSWITCH: 4`.
+2. In the example VM, ask for all of them, one entry per device, and size `cpu` and `memory` to most of the node:
+
+   ```yaml
+   gpus:
+   - {name: gpu0, deviceName: nvidia.com/GH100_H100_SXM5_80GB}
+   - {name: gpu1, deviceName: nvidia.com/GH100_H100_SXM5_80GB}
+   - {name: gpu2, deviceName: nvidia.com/GH100_H100_SXM5_80GB}
+   - {name: gpu3, deviceName: nvidia.com/GH100_H100_SXM5_80GB}
+   - {name: gpu4, deviceName: nvidia.com/GH100_H100_SXM5_80GB}
+   - {name: gpu5, deviceName: nvidia.com/GH100_H100_SXM5_80GB}
+   - {name: gpu6, deviceName: nvidia.com/GH100_H100_SXM5_80GB}
+   - {name: gpu7, deviceName: nvidia.com/GH100_H100_SXM5_80GB}
+   hostDevices:
+   - {name: nvswitch0, deviceName: nvidia.com/GH100_H100_NVSWITCH}
+   - {name: nvswitch1, deviceName: nvidia.com/GH100_H100_NVSWITCH}
+   - {name: nvswitch2, deviceName: nvidia.com/GH100_H100_NVSWITCH}
+   - {name: nvswitch3, deviceName: nvidia.com/GH100_H100_NVSWITCH}
+   ```
+
+3. The VM's image needs NVIDIA's driver plus the Fabric Manager package of the same version, with the `nvidia-fabricmanager` service running. Until it runs, CUDA reports the system as not yet initialized.
+
+The board belongs to one tenant at a time. Splitting it between VMs with NVLink inside each needs Fabric Manager on the host, which this chart doesn't do yet.
 
 ## Updating KubeVirt or CDI
 

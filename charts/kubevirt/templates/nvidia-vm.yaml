@@ -1,0 +1,80 @@
+{{- $kubevirt := .Values.kubevirt -}}
+{{- if and $kubevirt.enabled $kubevirt.nvidia.enabled }}
+# Gives the NVIDIA GPUs on nodes labeled fairport.io/vm=true to VMs (see README)
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-vm
+  namespace: kubevirt
+spec:
+  selector:
+    matchLabels:
+      app: nvidia-vm
+  template:
+    metadata:
+      labels:
+        app: nvidia-vm
+    spec:
+      nodeSelector:
+        fairport.io/vm: "true"
+      tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+      - key: CriticalAddonsOnly
+        operator: Exists
+      priorityClassName: system-node-critical
+      automountServiceAccountToken: false
+      initContainers:
+      # NVIDIA's vfio-manager, run the way the GPU operator runs it: moves every NVIDIA GPU on the node to
+      # vfio-pci. This is the only privileged step, and it exits once the GPUs are bound.
+      - name: vfio-bind
+        image: {{ $kubevirt.nvidia.images.vfioManager }}
+        command: ["vfio-manage", "bind", "--all"]
+        env:
+        - name: HOST_ROOT
+          value: /host
+        - name: BIND_NVSWITCHES
+          value: {{ $kubevirt.nvidia.bindNVSwitches | quote }}
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: host-sys
+          mountPath: /sys
+        - name: host-lib-modules
+          mountPath: /lib/modules
+          readOnly: true
+        - name: host-root
+          mountPath: /host
+      containers:
+      # NVIDIA's KubeVirt device plugin: offers each bound GPU under its model name
+      - name: device-plugin
+        image: {{ $kubevirt.nvidia.images.devicePlugin }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: device-plugins
+          mountPath: /var/lib/kubelet/device-plugins
+        - name: vfio
+          mountPath: /dev/vfio
+      volumes:
+      - name: host-sys
+        hostPath:
+          path: /sys
+          type: Directory
+      - name: host-lib-modules
+        hostPath:
+          path: /lib/modules
+          type: Directory
+      - name: host-root
+        hostPath:
+          path: /
+      - name: device-plugins
+        hostPath:
+          path: /var/lib/kubelet/device-plugins
+      - name: vfio
+        hostPath:
+          path: /dev/vfio
+{{- end }}

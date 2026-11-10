@@ -47,7 +47,7 @@ log-dhcp
 To pass devices to VMs ([kubevirt](../kubevirt/README.md)), image the node with:
 
 - IOMMU on in the firmware: Intel VT-d or AMD-Vi, plus SR-IOV if a device will be split into virtual functions.
-- Kernel arguments: `intel_iommu=on iommu=pt` on Intel, or just `iommu=pt` on AMD (its IOMMU is on whenever the firmware enables it). Add `vfio-pci.ids=<vendor:device>,...` for every accelerator VMs get, with IDs from `lspci -nn`. Leave NVIDIA GPUs out; the GPU operator binds those.
+- Kernel arguments: `intel_iommu=on iommu=pt` on Intel, or just `iommu=pt` on AMD (its IOMMU is on whenever the firmware enables it). Add `vfio-pci.ids=<vendor:device>,...` for every accelerator VMs get, with IDs from `lspci -nn`. Leave NVIDIA GPUs out; the kubevirt chart binds those on nodes labeled `fairport.io/vm=true`.
 - If a device's own driver could claim it first, load vfio-pci ahead of it with `softdep <driver> pre: vfio-pci` in `/etc/modprobe.d/vfio.conf`.
 
 Check after boot:
