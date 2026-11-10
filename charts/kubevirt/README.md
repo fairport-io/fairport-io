@@ -70,6 +70,8 @@ VMs use the pod network, so Cilium's network policies apply to them. For VMs to 
 
 Put VM disks on openebs hostpath by naming it (`storageClassName: openebs-hostpath`); fairport sets no default StorageClass. Each VM stays on the node holding its disk, can't live-migrate, and shuts down when that node drains.
 
+CDI reserves each disk's full size when it creates it (`preallocation: true`), so a node's disk is never overcommitted and one tenant can't fill space another was promised. That covers every disk made as a DataVolume, like the one in the example below; imports take longer, and there's no thin provisioning.
+
 ## Example - A Tenant VM With An Accelerator
 
 Tenant `tenant-a` gets one VM with 8 cores, 32 GiB of memory, a 50 GiB Ubuntu 24.04 disk and one accelerator, reached over SSH through the bastion. Swap `1234:5678` for your device's PCI ID (`lspci -nn`), and `example.com/accelerator` for a resource name of your choosing.
@@ -115,8 +117,6 @@ spec:
   - metadata:
       name: vm-1-root
     spec:
-      # Reserve the whole disk up front, so other VMs can't fill the node's disk out from under this one
-      preallocation: true
       source:
         http:
           # Air-gapped clusters: point this at an internal mirror

@@ -46,3 +46,6 @@ kubevirt:
     config:
       featureGates:
       - HonorWaitForFirstConsumer
+      # Reserve each disk's full size when CDI creates it, so a node's disk is never overcommitted and one
+      # tenant can't fill space another was promised. Costs slower imports and no thin provisioning.
+      preallocation: true
