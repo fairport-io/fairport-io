@@ -222,6 +222,18 @@ helmfile:
     wait: true
     needs: [ "monitoring/monitoring", "provisioning/provisioning", "slurm/slurm" ]
     values: [ "helmfile-values.yaml.gotmpl" ]
+  ##################
+  # Virtualization #
+  ##################
+  - name: kubevirt
+    installed: false
+    namespace: kubevirt
+    createNamespace: true
+    chart: oci://ghcr.io/fairport-io/charts/kubevirt
+    version: 1.9.1
+    atomic: true
+    wait: true
+    values: [ "helmfile-values.yaml.gotmpl" ]
   ############
   # Database #
   ############

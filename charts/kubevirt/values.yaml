@@ -1,0 +1,62 @@
+---
+kubevirt:
+  enabled: true
+  # Registry for every KubeVirt and CDI image. Point it at a mirror on air-gapped clusters.
+  registry: quay.io/kubevirt
+
+  # KubeVirt's spec.configuration (https://kubevirt.io/user-guide/). An override replaces a list whole,
+  # so copy the full list when adding to one.
+  configuration:
+    developerConfiguration:
+      # Beta gates are on by default and alpha gates off. HostDevices (alpha) allows PCI passthrough.
+      # Add WorkloadEncryptionTDX for Intel TDX VMs; AMD SEV and SEV-SNP are on already.
+      # Leave Sidecar, HostDisk, DownwardMetrics and Root off: each gives a VM a way into its host.
+      featureGates:
+      - HostDevices
+    # permittedHostDevices stays unset, so a VM can get any device its node offers, like any NVIDIA GPU on a
+    # VM node. KubeVirt only offers other accelerators once they're listed here, and any list is
+    # an allowlist for every device, so then list NVIDIA GPUs too, under the names their node offers:
+    # permittedHostDevices:
+    #   pciHostDevices:
+    #   - pciVendorSelector: "1234:5678"   # from lspci -nn, bound to vfio-pci by kernel arguments
+    #     resourceName: example.com/accelerator
+    #   - pciVendorSelector: "10DE:2330"
+    #     resourceName: nvidia.com/GH100_H100_SXM5_80GB
+    #     externalResourceProvider: true
+    # On a node drain, live-migrate the VMs that can move and shut down the rest
+    # (a VM with a node-local disk or a passthrough device can't move)
+    evictionStrategy: LiveMigrateIfPossible
+    # Only explicit RoleBindings grant VM access, not the default admin, edit and view roles
+    roleAggregationStrategy: Manual
+    # Run each VM's process under KubeVirt's seccomp profile
+    seccompConfiguration:
+      virtualMachineInstanceProfile:
+        customProfile:
+          localhostProfile: kubevirt/kubevirt.json
+
+  # KubeVirt's spec.workloads: where virt-handler runs, and so where VMs can run
+  workloads: {}
+  #  nodePlacement:
+  #    nodeSelector:
+  #      fairport.io/vm: "true"
+
+  # NVIDIA GPUs for VMs on nodes labeled fairport.io/vm=true (see README): NVIDIA's vfio-manager binds every NVIDIA
+  # GPU there to vfio-pci, then NVIDIA's KubeVirt device plugin offers each under its model name. These are the
+  # versions fairport's GPU operator (v26.3.1) runs; point them at a mirror on air-gapped clusters.
+  nvidia:
+    enabled: true
+    # Bind NVSwitches too, so one VM can take a whole HGX board and run NVIDIA Fabric Manager itself.
+    # Does nothing on nodes without NVSwitches.
+    bindNVSwitches: true
+    images:
+      vfioManager: nvcr.io/nvidia/cloud-native/k8s-driver-manager:v0.10.0
+      devicePlugin: nvcr.io/nvidia/kubevirt-gpu-device-plugin:v1.5.0
+
+  # CDI's spec.config. CDI imports VM disk images into PVCs.
+  cdi:
+    config:
+      featureGates:
+      - HonorWaitForFirstConsumer
+      # Reserve each disk's full size when CDI creates it, so a node's disk is never overcommitted and one
+      # tenant can't fill space another was promised. Costs slower imports and no thin provisioning.
+      preallocation: true
