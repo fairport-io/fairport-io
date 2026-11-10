@@ -68,7 +68,149 @@ VMs use the pod network, so Cilium's network policies apply to them. For VMs to 
 
 ### Storage
 
-VM disks use the default StorageClass, openebs hostpath. Each VM stays on the node holding its disk, can't live-migrate, and shuts down when that node drains.
+Put VM disks on openebs hostpath by naming it (`storageClassName: openebs-hostpath`); fairport sets no default StorageClass. Each VM stays on the node holding its disk, can't live-migrate, and shuts down when that node drains.
+
+## Example - A Tenant VM With An Accelerator
+
+Tenant `tenant-a` gets one VM with 8 cores, 32 GiB of memory, a 50 GiB Ubuntu 24.04 disk and one accelerator, reached over SSH through the bastion. Swap `1234:5678` for your device's PCI ID (`lspci -nn`), and `example.com/accelerator` for a resource name of your choosing.
+
+**1. Prepare the node.** Image it with the IOMMU on and the accelerator bound to `vfio-pci` (see [provisioning](../provisioning/README.md#vm-passthrough)). On the node, `lspci -nnk -d 1234:5678` should show `Kernel driver in use: vfio-pci`.
+
+**2. Turn on KubeVirt and permit the device.** Run `kubectl -n fairport edit configmap fairport-installer-values` and add this to its `values.yaml`, keeping anything already there:
+
+```yaml
+kubevirt:
+  enabled: true
+  kubevirt:
+    configuration:
+      permittedHostDevices:
+        pciHostDevices:
+        - pciVendorSelector: "1234:5678"
+          resourceName: example.com/accelerator
+```
+
+On a cluster installed with `FAIRPORT_CONFIG_FILE`, add it to that file and under `values:` in the `fairport` HelmChart in `kube-system` instead; the installer can't combine the two sources yet.
+
+KubeVirt and CDI should report `Deployed`, and the node should offer the device:
+
+```shell
+kubectl -n kubevirt get kubevirt kubevirt -o jsonpath='{.status.phase}{"\n"}'
+kubectl get cdi cdi -o jsonpath='{.status.phase}{"\n"}'
+kubectl get node <node> -o jsonpath='{.status.allocatable.example\.com/accelerator}{"\n"}'
+```
+
+**3. Create the VM.**
+
+```shell
+kubectl create namespace tenant-a
+kubectl apply -f - << EOF
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: vm-1
+  namespace: tenant-a
+spec:
+  runStrategy: Always
+  dataVolumeTemplates:
+  - metadata:
+      name: vm-1-root
+    spec:
+      # Reserve the whole disk up front, so other VMs can't fill the node's disk out from under this one
+      preallocation: true
+      source:
+        http:
+          # Air-gapped clusters: point this at an internal mirror
+          url: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
+      storage:
+        storageClassName: openebs-hostpath
+        accessModes: [ReadWriteOnce]
+        volumeMode: Filesystem
+        resources:
+          requests:
+            storage: 50Gi
+  template:
+    spec:
+      domain:
+        cpu:
+          cores: 8
+        resources:
+          requests:
+            memory: 32Gi
+        firmware:
+          bootloader:
+            # UEFI maps the large memory windows that GPUs and accelerators expose
+            efi:
+              secureBoot: false
+        devices:
+          disks:
+          - name: root
+            disk: {bus: virtio}
+          - name: cloudinit
+            disk: {bus: virtio}
+          interfaces:
+          # NAT behind the pod's IP; KubeVirt's default is bridge
+          - name: default
+            masquerade: {}
+          hostDevices:
+          - name: accel0
+            deviceName: example.com/accelerator
+      networks:
+      - name: default
+        pod: {}
+      volumes:
+      - name: root
+        dataVolume:
+          name: vm-1-root
+      - name: cloudinit
+        cloudInitNoCloud:
+          userData: |
+            #cloud-config
+            ssh_authorized_keys:
+            - ssh-ed25519 AAAA... tenant@laptop
+EOF
+```
+
+**4. Check it and connect.** The disk imports first, then the VM boots on the node with the device:
+
+```shell
+kubectl -n tenant-a get datavolume,vm,vmi
+kubectl -n tenant-a get vmi vm-1 -o jsonpath='{.status.interfaces[0].ipAddress}{"\n"}'
+```
+
+The tenant connects from the bastion with `ssh ubuntu@<that address>`. Admins can also use the serial console with `virtctl -n tenant-a console vm-1`, and leave it with `Ctrl+]`.
+
+**For an NVIDIA GPU instead,** let the GPU operator bind it:
+
+1. Add this to the same ConfigMap:
+
+   ```yaml
+   nvidia-gpu-operator:
+     nvidia-gpu-operator:
+       sandboxWorkloads:
+         enabled: true
+   ```
+
+2. Label the node: `kubectl label node <node> nvidia.com/gpu.workload.config=vm-passthrough`.
+3. Permit the GPU under the resource name the node now offers (`kubectl get node <node> -o jsonpath='{.status.allocatable}'`), with `externalResourceProvider: true`:
+
+   ```yaml
+   kubevirt:
+     kubevirt:
+       configuration:
+         permittedHostDevices:
+           pciHostDevices:
+           - pciVendorSelector: "10DE:1DB6"
+             resourceName: nvidia.com/GV100GL_Tesla_V100
+             externalResourceProvider: true
+   ```
+
+4. In the VM, replace `hostDevices` with:
+
+   ```yaml
+   gpus:
+   - name: gpu0
+     deviceName: nvidia.com/GV100GL_Tesla_V100
+   ```
 
 ## Updating KubeVirt or CDI
 
