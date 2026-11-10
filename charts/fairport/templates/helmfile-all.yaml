@@ -41,14 +41,14 @@ data:
     {{- end }}
     releases:
     {{ printf "{{- $helmfile := %q | fromYaml -}}" (dict "releases" .Values.helmfile.releases | toYaml) }}
-    {{ `{{- $allValues := readFile "values.yaml" | fromYaml -}}` }}
+    {{ `{{- $allValues := readFile "values.yaml" | fromYaml | default dict -}}` }}
     {{ `{{- $releases := list -}}` }}
     {{ `{{- range $helmfile.releases -}}` }}
-    {{ `{{- if ne (dig .name "enabled" true $allValues) false -}}` }}
+    {{ `{{- if ne (dig "enabled" true (index $allValues .name | default dict)) false -}}` }}
     {{ `{{- if hasKey . "needs" -}}` }}
     {{ `{{- $needs := list -}}` }}
     {{ `{{- range .needs -}}` }}
-    {{ `{{- if ne (dig (last (splitList "/" .)) "enabled" true $allValues) false -}}` }}
+    {{ `{{- if ne (dig "enabled" true (index $allValues (last (splitList "/" .)) | default dict)) false -}}` }}
     {{ `{{- $needs = append $needs . -}}` }}
     {{ `{{- end -}}` }}
     {{ `{{- end -}}` }}
