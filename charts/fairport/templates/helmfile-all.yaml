@@ -42,16 +42,23 @@ data:
     releases:
     {{ printf "{{- $helmfile := %q | fromYaml -}}" (dict "releases" .Values.helmfile.releases | toYaml) }}
     {{ `{{- $allValues := readFile "values.yaml" | fromYaml | default dict -}}` }}
+    {{ `{{- $needsOf := dict -}}` }}
+    {{ `{{- range $helmfile.releases -}}{{- if hasKey . "needs" -}}{{- $_ := set $needsOf .name .needs -}}{{- end -}}{{- end -}}` }}
     {{ `{{- $releases := list -}}` }}
     {{ `{{- range $helmfile.releases -}}` }}
     {{ `{{- if ne (dig "enabled" true (index $allValues .name | default dict)) false -}}` }}
     {{ `{{- if eq (dig "enabled" false (index $allValues .name | default dict)) true -}}{{- $_ := set . "installed" true -}}{{- end -}}` }}
     {{ `{{- if hasKey . "needs" -}}` }}
-    {{ `{{- $needs := list -}}` }}
-    {{ `{{- range .needs -}}` }}
-    {{ `{{- if ne (dig "enabled" true (index $allValues (last (splitList "/" .)) | default dict)) false -}}` }}
-    {{ `{{- $needs = append $needs . -}}` }}
+    {{ `{{- $needs := .needs -}}` }}
+    {{ `{{- /* Swap each disabled need for its own needs; one pass per release covers the longest chain (O(n^2), fine at this size). */ -}}` }}
+    {{ `{{- range until (len $helmfile.releases) -}}` }}
+    {{ `{{- $next := list -}}` }}
+    {{ `{{- range $needs -}}` }}
+    {{ `{{- $n := last (splitList "/" .) -}}` }}
+    {{ `{{- if ne (dig "enabled" true (index $allValues $n | default dict)) false -}}{{- $next = append $next . -}}` }}
+    {{ `{{- else -}}{{- $next = concat $next (index $needsOf $n | default list) -}}{{- end -}}` }}
     {{ `{{- end -}}` }}
+    {{ `{{- $needs = uniq $next -}}` }}
     {{ `{{- end -}}` }}
     {{ `{{- $_ := set . "needs" $needs -}}` }}
     {{ `{{- end -}}` }}

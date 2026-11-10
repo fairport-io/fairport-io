@@ -48,6 +48,10 @@ cat > "$test_dir/templates/check.yaml" <<'EOF'
 {{- $onByName := dict -}}
 {{- range (tpl $runtime . | fromYaml).releases -}}{{- $_ := set $onByName .name . -}}{{- end -}}
 {{- if ne (index $onByName "containerssh").installed true -}}{{ fail "enabled: true did not install installed: false containerssh" }}{{- end -}}
+{{- $_ = set .Values "runtimeValues" (dict "kueue" (dict "enabled" false) "slurm-operator" (dict "enabled" false)) -}}
+{{- $chainByName := dict -}}
+{{- range (tpl $runtime . | fromYaml).releases -}}{{- $_ := set $chainByName .name . -}}{{- end -}}
+{{- if not (deepEqual (index $chainByName "slurm").needs (list "cattle-system/rancher" "kyverno/kyverno")) -}}{{ fail "disabled needs did not pass on their own needs" }}{{- end -}}
 {{- $allDisabled := dict -}}
 {{- range $baseline.releases -}}{{- $_ := set $allDisabled .name (dict "enabled" false) -}}{{- end -}}
 {{- $_ = set .Values "runtimeValues" $allDisabled -}}
