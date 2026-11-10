@@ -45,6 +45,7 @@ data:
     {{ `{{- $releases := list -}}` }}
     {{ `{{- range $helmfile.releases -}}` }}
     {{ `{{- if ne (dig "enabled" true (index $allValues .name | default dict)) false -}}` }}
+    {{ `{{- if eq (dig "enabled" false (index $allValues .name | default dict)) true -}}{{- $_ := set . "installed" true -}}{{- end -}}` }}
     {{ `{{- if hasKey . "needs" -}}` }}
     {{ `{{- $needs := list -}}` }}
     {{ `{{- range .needs -}}` }}

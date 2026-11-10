@@ -1,0 +1,90 @@
+{{- $containerssh := .Values.containerssh -}}
+{{- if $containerssh.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: containerssh
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: containerssh
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: containerssh
+  template:
+    metadata:
+      labels:
+        app: containerssh
+      annotations:
+        # Changes whenever the config or hooks change, so the pod rolls; a ConfigMap edit alone wouldn't.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: containerssh
+      initContainers:
+        # Copy the SSH host key from its Secret into the pod, creating the Secret on first start.
+        # A Secret volume can't do this: the pod won't start until a mounted Secret exists.
+        - name: hostkey
+          image: {{ $containerssh.images.python }}
+          command: ["python", "/etc/hooks/hostkey.py"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/hooks
+            - name: hostkey
+              mountPath: /keys
+      containers:
+        # Run ContainerSSH
+        - name: containerssh
+          image: {{ $containerssh.images.containerssh }}
+          securityContext:
+            # Read only container
+            readOnlyRootFilesystem: true
+          ports:
+            - containerPort: 2222
+          volumeMounts:
+              # Mount the host keys
+            - name: hostkey
+              mountPath: /etc/containerssh/keys
+              readOnly: true
+              # Mount the config file
+            - name: config
+              mountPath: /etc/containerssh/config.yaml
+              subPath: config.yaml
+              readOnly: true
+        # Run the auth + config webhooks (keys from the users ConfigMap, shape from the username)
+        - name: hooks
+          image: {{ $containerssh.images.python }}
+          command: ["python", "/etc/hooks/hooks.py"]
+          securityContext:
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: config
+              mountPath: /etc/hooks
+              # Not a subPath, so the kubelet keeps the files in sync with the ConfigMap
+            - name: users
+              mountPath: /etc/users
+              readOnly: true
+      # Don't allow containers running as root (ContainerSSH doesn't need it)
+      securityContext:
+        runAsNonRoot: true
+        # One user for every container, so the key the init container writes (mode 600) is readable by ContainerSSH
+        runAsUser: 65534
+      nodeSelector: {{ $containerssh.nodeSelector | toJson }}
+      tolerations: {{ $containerssh.tolerations | toJson }}
+      affinity: {{ $containerssh.affinity | toJson }}
+      volumes:
+        # In memory, so the private key never touches the node's disk
+        - name: hostkey
+          emptyDir:
+            medium: Memory
+        - name: config
+          configMap:
+            name: containerssh-config
+            # Executable, so authorizedKeysCommand can run
+            defaultMode: 0555
+        - name: users
+          configMap:
+            name: containerssh-users
+{{- end }}

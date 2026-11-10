@@ -44,6 +44,10 @@ cat > "$test_dir/templates/check.yaml" <<'EOF'
 
 {{- $_ = set .Values "runtimeValues" (dict "kube-vip" (dict "enabled" true "kube-vip" (dict "enabled" false))) -}}
 {{- if not (deepEqual (tpl $runtime . | fromYaml) $baseline) -}}{{ fail "enabled: true did not restore release" }}{{- end -}}
+{{- $_ = set .Values "runtimeValues" (dict "containerssh" (dict "enabled" true)) -}}
+{{- $onByName := dict -}}
+{{- range (tpl $runtime . | fromYaml).releases -}}{{- $_ := set $onByName .name . -}}{{- end -}}
+{{- if ne (index $onByName "containerssh").installed true -}}{{ fail "enabled: true did not install installed: false containerssh" }}{{- end -}}
 {{- $allDisabled := dict -}}
 {{- range $baseline.releases -}}{{- $_ := set $allDisabled .name (dict "enabled" false) -}}{{- end -}}
 {{- $_ = set .Values "runtimeValues" $allDisabled -}}

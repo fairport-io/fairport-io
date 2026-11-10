@@ -1,0 +1,147 @@
+---
+containerssh:
+  enabled: true
+  images:
+    containerssh: containerssh/containerssh:v0.6
+    # Runs the hostkey init container and the auth/config webhooks (standard library only)
+    python: python:3.12-slim
+
+  logLevel: info
+
+  # Exposes SSH on port 30022 of every node
+  service:
+    type: NodePort
+    port: 22
+    nodePort: 30022
+    annotations: {}
+    # Or a LoadBalancer on port 22. Pin the VIP so DNS and users' known_hosts stay valid. Must be a free address,
+    # not a node's IP and not the control-plane VIP, or port 22 would clash with that host's sshd.
+    # type: LoadBalancer
+    # annotations:
+    #   kube-vip.io/loadbalancerIPs: "10.0.0.10"
+
+  # Who can log in: one entry per user, in authorized_keys format. The hooks read these on every login,
+  # so changes apply once the kubelet syncs the ConfigMap (a minute or two), without dropping sessions.
+  users: {}
+  #  alice: |
+  #    ssh-ed25519 AAAA... alice@laptop
+
+  # Optional script for custom authentication, like sshd's AuthorizedKeysCommand: it gets the username (without the
+  # +options) as its only argument and prints that user's keys in authorized_keys format. They work alongside users above;
+  # printing nothing or exiting non-zero adds none. It runs in the hooks container (images.python: python and sh, no curl)
+  # with a 5 second timeout, and its stderr goes to that container's log.
+  authorizedKeysCommand: ""
+  # Example: log in as your GitHub username with the keys on your GitHub profile (ssh jakerbeck@host).
+  # Keep the allow list: without it, anyone with a GitHub account could get a pod.
+  # authorizedKeysCommand: |
+  #   #!/usr/bin/env python3
+  #   import sys, urllib.request
+  #   ALLOWED = {"jakerbeck"}
+  #   if sys.argv[1] in ALLOWED:
+  #       print(urllib.request.urlopen(f"https://github.com/{sys.argv[1]}.keys", timeout=4).read().decode())
+
+  # Every login gets its own pod. Options go after a "+" in the username, each a letter and a number,
+  # all optional: ssh alice+c4m16i1t7200@host
+  #   c CPUs, m memory (GiB), i image (key in values), t lifetime (seconds)
+  guest:
+    # Each option writes its number into the pod below, at every path under "set" ("{}" is the number).
+    # Paths are dot-separated, numbers index lists, and "\." is a dot inside a key (nvidia\.com/gpu).
+    # A result that looks like a number becomes one; write '"{}"' where Kubernetes wants a string (annotations, env).
+    # Option keys must be single letters. Set an option or a path to null to remove a default one. min and max are optional.
+    # Bad or out-of-range options refuse the login; the reason goes to the hooks container's log
+    options:
+      # CPUs
+      # No max: a request bigger than any node just leaves the pod Pending.
+      c:
+        default: 2
+        min: 1
+        # max: 16
+        set:
+          spec.containers.0.resources.requests.cpu: "{}"
+          spec.containers.0.resources.limits.cpu: "{}"
+      # Memory (GiB)
+      # No max: a request bigger than any node just leaves the pod Pending.
+      m:
+        default: 4
+        min: 1
+        # max: 64
+        set:
+          spec.containers.0.resources.requests.memory: "{}Gi"
+          spec.containers.0.resources.limits.memory: "{}Gi"
+      # Image. "values" is a lookup table instead of min/max: the number picks an entry, and only those numbers are allowed.
+      # Numbers are permanent: to retire an image, set it to null and never reuse its number,
+      # so users' saved "i" values never change meaning.
+      # Images need /bin/bash; scp/sftp also need /usr/lib/openssh/sftp-server. The ContainerSSH agent is copied in at start.
+      i:
+        default: 0
+        values:
+          0: ubuntu:24.04
+        set:
+          spec.containers.0.image: "{}"
+      # Lifetime (seconds): the pod is killed after this
+      t:
+        default: 3600
+        min: 60
+        max: 14400
+        set:
+          spec.activeDeadlineSeconds: "{}"
+      # GPUs, for example:
+      # g:
+      #   default: 0
+      #   min: 0
+      #   max: 8
+      #   set:
+      #     spec.containers.0.resources.limits.nvidia\.com/gpu: "{}"
+    # ContainerSSH's kubernetes.pod config for every login, before the options above are applied
+    # (https://containerssh.io/reference/kubernetes/). The hooks add metadata.generateName from the username.
+    pod:
+      metadata:
+        namespace: containerssh-guests
+      agentPath: /opt/containerssh/containerssh-agent
+      idleCommand: [/opt/containerssh/containerssh-agent, wait-signal, --signal, INT, --signal, TERM]
+      shellCommand: [/bin/bash]
+      # Add nodeSelector, tolerations, affinity, schedulerName, ... here
+      spec:
+        automountServiceAccountToken: false
+        securityContext:
+          runAsUser: 1000
+          runAsGroup: 1000
+          runAsNonRoot: true
+        initContainers:
+          # Copy the ContainerSSH agent in, so the images don't need it installed
+          - name: agent
+            # Where the ContainerSSH agent binary is copied from
+            image: containerssh/containerssh-guest-image
+            command: [cp, /usr/bin/containerssh-agent, /opt/containerssh/containerssh-agent]
+            securityContext:
+              allowPrivilegeEscalation: false
+            volumeMounts:
+              - name: agent
+                mountPath: /opt/containerssh
+        containers:
+          # image comes from option i
+          - name: shell
+            env:
+              # For agent forwarding, since native ssh -A is unsupported in v0.6: ssh -R /tmp/containerssh-ssh-agent.sock:$SSH_AUTH_SOCK
+              - name: SSH_AUTH_SOCK
+                value: /tmp/containerssh-ssh-agent.sock
+            resources:
+              # Caps each pod's writes (image layer, /tmp, logs) so one user can't fill a node's disk; past it, the kubelet evicts the pod
+              requests:
+                ephemeral-storage: 10Gi
+              limits:
+                ephemeral-storage: 10Gi
+            securityContext:
+              allowPrivilegeEscalation: false
+            volumeMounts:
+              - name: agent
+                mountPath: /opt/containerssh
+                readOnly: true
+        volumes:
+          - name: agent
+            emptyDir: {}
+
+  # Scheduling for the ContainerSSH pod itself
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}

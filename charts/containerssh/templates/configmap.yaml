@@ -1,0 +1,58 @@
+{{- $containerssh := .Values.containerssh -}}
+{{- if $containerssh.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: containerssh-config
+  namespace: {{ .Release.Namespace }}
+data:
+  config.yaml: |
+    log:
+      level: {{ $containerssh.logLevel }}
+    ssh:
+      hostkeys:
+        # Written by the hostkey init container from the containerssh-hostkey Secret (generated on first start)
+        - /etc/containerssh/keys/ssh_host_ed25519_key
+    auth:
+      publicKey:
+        method: webhook
+        webhook:
+          # The authentication server will be running in the same pod, so we use 127.0.0.1
+          url: http://127.0.0.1:8080
+          # Default is 2s; leaves headroom for authorizedKeysCommand (5s timeout)
+          timeout: 10s
+    # Per-connection pod config (shape from the username) comes from the same sidecar
+    configserver:
+      url: http://127.0.0.1:8080/config
+    security:
+      forwarding:
+        # VS Code Remote-SSH tunnels to its server inside the container (also covers ssh -L / -D).
+        # Reverse, socket and X11 forwarding stay off (ContainerSSH's default).
+        forwardingMode: enable
+        # Allow ssh -R agent socket listeners; native ssh -A forwarding is unsupported in v0.6.
+        socketListenMode: enable
+    # We run the guest containers in the same Kubernetes cluster as ContainerSSH is running in
+    backend: kubernetes
+    kubernetes:
+      connection:
+        host: kubernetes.default.svc
+        cacertFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      # The hooks replace this pod on every login (from guest.pod); it's here because ContainerSSH needs a base config
+      pod:
+        metadata:
+          namespace: {{ $containerssh.guest.pod.metadata.namespace }}
+        spec:
+          containers:
+            - name: shell
+              image: containerssh/containerssh-guest-image
+  hooks.py: |
+    {{- .Files.Get "files/hooks.py" | nindent 4 }}
+  hostkey.py: |
+    {{- .Files.Get "files/hostkey.py" | nindent 4 }}
+  settings.json: {{ toJson $containerssh.guest | quote }}
+  {{- with $containerssh.authorizedKeysCommand }}
+  authorized-keys-command: |
+    {{- . | nindent 4 }}
+  {{- end }}
+{{- end }}

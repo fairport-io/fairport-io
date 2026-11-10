@@ -1,0 +1,20 @@
+{{- $containerssh := .Values.containerssh -}}
+{{- if $containerssh.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: containerssh
+  namespace: {{ .Release.Namespace }}
+  annotations: {{ $containerssh.service.annotations | toJson }}
+spec:
+  type: {{ $containerssh.service.type }}
+  selector:
+    app: containerssh
+  ports:
+    - protocol: TCP
+      port: {{ $containerssh.service.port }}
+      targetPort: 2222
+      {{- if $containerssh.service.nodePort }}
+      nodePort: {{ $containerssh.service.nodePort }}
+      {{- end }}
+{{- end }}
