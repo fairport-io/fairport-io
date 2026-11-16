@@ -158,9 +158,9 @@ users:
   authorized_keys_secret: "fp-ssh-keys" # Name of a secret containing an authorized_keys file, this will be generated if it doesnt exist
                                         ## kubectl -n tinkerbell create secret generic fp-ssh-keys --from-file=authorized_keys=$HOME/.ssh/id_rsa.pub
 # Equal rule-match counts use alphabetical names, not list or creation order.
-# Keep catch-all names after specific workflows (e.g. 00-server before default).
+# Keep catch-all names after specific workflows (e.g. server-2404 before zzz-default).
 workflows:
-- name: default
+- name: zzz-default
   mac_addresses: [ "*" ]
   image_url: "http://$HOST_IP:7173/ubuntu-2404.img"
   user_groups: [ "default" ]

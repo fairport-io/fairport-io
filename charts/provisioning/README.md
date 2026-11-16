@@ -9,22 +9,23 @@ artifact servers are disabled, including the newly enabled CaptainOS default,
 so Smee continues requesting `vmlinuz-<arch>` and `initramfs-<arch>`.
 
 WorkflowRuleSets and Templates are now updated in place on Helm install/upgrade.
-Their names and UIDs stay stable, preserving existing Workflows owned by a
+For unchanged names, UIDs stay stable, preserving existing Workflows owned by a
 WorkflowRuleSet. The object manager still resolves `$HOST_IP` in Template URLs.
 
 [Upstream selection rules](https://github.com/tinkerbell/tinkerbell/blob/v0.26.0/docs/technical/AUTO_ENROLLMENT.md#choosing-between-matching-workflowrulesets)
 choose the WorkflowRuleSet with the most matching rules, then break ties by
 namespace and name in alphabetical order. List order and creation time do not
-set priority. Before upgrading, ensure specific workflows sort before a catch-all:
-for example, name a specific workflow `00-server` when retaining the existing
-`default` fallback, or use `zzz-default` for the fallback.
+set priority. The shipped catch-all is named `zzz-default` so specific names like
+`server-2404` sort before it. If you override the `workflows` list, rename your
+catch-all there too and ensure it sorts after your specific workflows.
 
-Unchanged names need no object migration. If you rename or remove a workflow in
-values, remove its old installer-managed WorkflowRuleSet and Template after the
-new objects are installed; the installer does not prune them. Use
-`kubectl -n provisioning delete workflowruleset <old-name> --cascade=orphan` to
-preserve Workflows owned by the old rule set. Remove its Template only after
-Workflows referencing it have finished.
+Unchanged names need no object migration. One installer Job applies all configured
+objects, then removes installer-managed WorkflowRuleSets absent from `workflows`
+in the release namespace. An empty list removes all installer-managed rule sets.
+Cleanup only runs after every apply succeeds and uses `--cascade=orphan` to
+preserve existing Workflows. Unlabeled rule sets remain untouched. Templates are
+retained for Workflows that still reference them; remove obsolete Templates only
+after those Workflows have finished.
 
 ## DHCP Configurations
 

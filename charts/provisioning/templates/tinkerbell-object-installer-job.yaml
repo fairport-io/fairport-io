@@ -33,17 +33,15 @@ roleRef:
   kind: Role
   name: tinkerbell-object-installer
   apiGroup: rbac.authorization.k8s.io
-{{- range $i, $workflow := .Values.workflows }}
-{{- $name := $workflow.name }}
 ---
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: tinkerbell-object-installer-{{ $name }}
+  name: tinkerbell-object-installer
   annotations:
     "helm.sh/hook": post-upgrade,post-install
     "helm.sh/hook-delete-policy": before-hook-creation
-    "helm.sh/hook-weight": "{{ $i }}"
+    "helm.sh/hook-weight": "0"
   labels:
     fairport.io/app: tinkerbell-object-installer
 spec:
@@ -63,12 +61,15 @@ spec:
         - /bin/sh
         - -c
         - |
+          set -e
 
           # The first object should wait 15s because tinkerbell may not have initialized crds
-          [ {{ $i }} -eq 0 ] && sleep 15
+          sleep 15
 
           # Apply in place: v0.26.0 resolves equal rule matches by namespace/name.
           # Artifact URLs are resolved by the object manager's patch_templates.
+          {{- range $workflow := .Values.workflows }}
+          {{- $name := $workflow.name }}
           cat <<'EOF' | kubectl apply --server-side --force-conflicts -f -
           ---
           apiVersion: tinkerbell.org/v1alpha1
@@ -381,6 +382,21 @@ spec:
                   volumes:
                     - /var/run/docker.sock:/var/run/docker.sock
           EOF
-{{- end }}
+          {{- end }}
+
+          # Prune only after every apply succeeds, including when workflows is empty.
+          MANAGED_WRS=$(kubectl -n {{ $.Release.Namespace }} get workflowrulesets -l fairport.io/managed-by=tinkerbell-object-installer -o jsonpath='{.items[*].metadata.name}')
+          for WRS in $MANAGED_WRS; do
+              case "$WRS" in
+                  {{- range .Values.workflows }}
+                  {{ .name | quote }}) ;;
+                  {{- end }}
+                  *)
+                      echo "Removing stale WorkflowRuleSet: $WRS"
+                      # Preserve dependent Workflows; their Templates may still be needed.
+                      kubectl -n {{ $.Release.Namespace }} delete workflowruleset "$WRS" --cascade=orphan --ignore-not-found
+                      ;;
+              esac
+          done
 {{- end }}
 {{- end }}
