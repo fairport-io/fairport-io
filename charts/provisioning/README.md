@@ -2,6 +2,30 @@
 
 Helm wrapper for [Tinkerbell](https://tinkerbell.org) that adds SSH key generation, OS image caching, and automated Tinkerbell workflow/template object management for bare-metal provisioning.
 
+## Tinkerbell v0.26.0 upgrade
+
+The wrapper keeps serving HookOS v0.11.1 from `os-image-cache`. Both upstream
+artifact servers are disabled, including the newly enabled CaptainOS default,
+so Smee continues requesting `vmlinuz-<arch>` and `initramfs-<arch>`.
+
+WorkflowRuleSets and Templates are now updated in place on Helm install/upgrade.
+Their names and UIDs stay stable, preserving existing Workflows owned by a
+WorkflowRuleSet. The object manager still resolves `$HOST_IP` in Template URLs.
+
+[Upstream selection rules](https://github.com/tinkerbell/tinkerbell/blob/v0.26.0/docs/technical/AUTO_ENROLLMENT.md#choosing-between-matching-workflowrulesets)
+choose the WorkflowRuleSet with the most matching rules, then break ties by
+namespace and name in alphabetical order. List order and creation time do not
+set priority. Before upgrading, ensure specific workflows sort before a catch-all:
+for example, name a specific workflow `00-server` when retaining the existing
+`default` fallback, or use `zzz-default` for the fallback.
+
+Unchanged names need no object migration. If you rename or remove a workflow in
+values, remove its old installer-managed WorkflowRuleSet and Template after the
+new objects are installed; the installer does not prune them. Use
+`kubectl -n provisioning delete workflowruleset <old-name> --cascade=orphan` to
+preserve Workflows owned by the old rule set. Remove its Template only after
+Workflows referencing it have finished.
+
 ## DHCP Configurations
 
 ### dnsmasq

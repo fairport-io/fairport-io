@@ -33,7 +33,7 @@ roleRef:
   kind: Role
   name: tinkerbell-object-installer
   apiGroup: rbac.authorization.k8s.io
-{{- range $i, $workflow := .Values.workflows | reverse }}
+{{- range $i, $workflow := .Values.workflows }}
 {{- $name := $workflow.name }}
 ---
 apiVersion: batch/v1
@@ -67,15 +67,8 @@ spec:
           # The first object should wait 15s because tinkerbell may not have initialized crds
           [ {{ $i }} -eq 0 ] && sleep 15
 
-          ARTIFACT_SERVER_IP=$(kubectl -n {{ $.Release.Namespace }} get pod -l app=os-image-cache -o jsonpath='{.items[0].status.podIP}')
-          [ -z "$ARTIFACT_SERVER_IP" ] && echo "Failed to get artifact server IP" && exit 1
-
-          MANAGED_WRS=$(kubectl get wrs --no-headers -l fairport.io/managed-by=tinkerbell-object-installer | grep "^{{ $name }} " | cut -d ' ' -f1 | tr '\n' ' ')
-          [ "$MANAGED_WRS" ] && kubectl delete wrs $MANAGED_WRS
-
-          MANAGED_TEMPLATES=$(kubectl get templates --no-headers -l fairport.io/managed-by=tinkerbell-object-installer | grep "^{{ $name }} " | cut -d ' ' -f1 | tr '\n' ' ')
-          [ "$MANAGED_TEMPLATES" ] && kubectl delete templates $MANAGED_TEMPLATES
-
+          # Apply in place: v0.26.0 resolves equal rule matches by namespace/name.
+          # Artifact URLs are resolved by the object manager's patch_templates.
           cat <<'EOF' | kubectl apply --server-side --force-conflicts -f -
           ---
           apiVersion: tinkerbell.org/v1alpha1
