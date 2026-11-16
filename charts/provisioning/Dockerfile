@@ -11,3 +11,4 @@ RUN helm dependency update && \
 
 FROM build AS test
 RUN helm template provisioning . --namespace provisioning > /dev/null
+RUN sh ./test-upstream.sh
