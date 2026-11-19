@@ -88,7 +88,7 @@ helmfile:
     namespace: monitoring
     createNamespace: true
     chart: oci://ghcr.io/fairport-io/charts/monitoring
-    version: 1.0.0
+    version: 1.0.1
     atomic: true
     wait: true
     needs: [ "cert-manager/cert-manager" ]
