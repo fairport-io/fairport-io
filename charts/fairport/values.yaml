@@ -178,7 +178,7 @@ helmfile:
     namespace: provisioning
     createNamespace: true
     chart: oci://ghcr.io/fairport-io/charts/provisioning
-    version: 1.0.1
+    version: 1.0.4
     atomic: true
     wait: true
     needs: [ "slurm/slurm" ]
