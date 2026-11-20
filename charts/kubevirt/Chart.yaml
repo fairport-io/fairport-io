@@ -1,0 +1,7 @@
+---
+apiVersion: v2
+name: kubevirt
+version: "0" # Inherited from the VERSION file when make is run
+description: KubeVirt and CDI, for virtual machines with GPU and accelerator passthrough
+annotations:
+  publish-repository: oci://ghcr.io/fairport-io
