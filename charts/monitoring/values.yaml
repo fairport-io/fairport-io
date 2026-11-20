@@ -6,6 +6,26 @@ kube-prometheus-stack:
     alertmanagerSpec:
       replicas: 2
       podAntiAffinity: "hard"
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values: [alertmanager]
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values: [monitoring]
+            - weight: 25
+              preference:
+                matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: Exists
       storage:
        volumeClaimTemplate:
          spec:
@@ -19,6 +39,26 @@ kube-prometheus-stack:
     prometheusSpec:
       replicas: 2
       podAntiAffinity: "hard"
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values: [prometheus]
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values: [monitoring]
+            - weight: 25
+              preference:
+                matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: Exists
       retentionSize: 10GB
       ruleSelectorNilUsesHelmValues: false
       serviceMonitorSelectorNilUsesHelmValues: false
@@ -33,6 +73,47 @@ kube-prometheus-stack:
              requests:
                storage: 5Gi
   grafana:
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [grafana]
+          - weight: 50
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [monitoring]
+          - weight: 25
+            preference:
+              matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: Exists
+    imageRenderer:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values: [grafana-image-renderer]
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values: [monitoring]
+            - weight: 25
+              preference:
+                matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: Exists
     additionalDataSources:
       - name: VictoriaTraces
         uid: victoriatraces
@@ -60,6 +141,139 @@ kube-prometheus-stack:
         enabled: true
         searchNamespace: ALL
 
+  prometheusOperator:
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [prometheus-operator]
+          - weight: 50
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [monitoring]
+          - weight: 25
+            preference:
+              matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: Exists
+    admissionWebhooks:
+      deployment:
+        affinity:
+          nodeAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                preference:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values: [prometheus-operator]
+              - weight: 50
+                preference:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values: [monitoring]
+              - weight: 25
+                preference:
+                  matchExpressions:
+                    - key: node-role.kubernetes.io/control-plane
+                      operator: Exists
+      patch:
+        affinity:
+          nodeAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                preference:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values: [prometheus-operator]
+              - weight: 50
+                preference:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values: [monitoring]
+              - weight: 25
+                preference:
+                  matchExpressions:
+                    - key: node-role.kubernetes.io/control-plane
+                      operator: Exists
+
+  kube-state-metrics:
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [kube-state-metrics]
+          - weight: 50
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [monitoring]
+          - weight: 25
+            preference:
+              matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: Exists
+
+  thanosRuler:
+    thanosRulerSpec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values: [thanos-ruler]
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values: [monitoring]
+            - weight: 25
+              preference:
+                matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: Exists
+
+  crds:
+    upgradeJob:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values: [prometheus-operator]
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values: [monitoring]
+            - weight: 25
+              preference:
+                matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: Exists
+
   prometheus-node-exporter:
     service:
       port: 9109
@@ -76,6 +290,25 @@ victoria-logs-cluster:
       storageClassName: openebs-hostpath
       size: 10Gi
     affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [vlstorage]
+          - weight: 50
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [monitoring]
+          - weight: 25
+            preference:
+              matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: Exists
       podAntiAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:
           - labelSelector:
@@ -86,6 +319,25 @@ victoria-logs-cluster:
   vlinsert:
     replicaCount: 2
     affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [vlinsert]
+          - weight: 50
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [monitoring]
+          - weight: 25
+            preference:
+              matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: Exists
       podAntiAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:
           - labelSelector:
@@ -97,6 +349,25 @@ victoria-logs-cluster:
     fullnameOverride: "vlselect"
     replicaCount: 2
     affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [vlselect]
+          - weight: 50
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [monitoring]
+          - weight: 25
+            preference:
+              matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: Exists
       podAntiAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:
           - labelSelector:
@@ -104,8 +375,71 @@ victoria-logs-cluster:
                 app.kubernetes.io/name: vlselect
             topologyKey: kubernetes.io/hostname
 
+  vmauth:
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [vmauth]
+          - weight: 50
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [monitoring]
+          - weight: 25
+            preference:
+              matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: Exists
+
   vector:
     enabled: true
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [vector]
+          - weight: 50
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [monitoring]
+          - weight: 25
+            preference:
+              matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: Exists
+    haproxy:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values: [vector-haproxy]
+            - weight: 50
+              preference:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values: [monitoring]
+            - weight: 25
+              preference:
+                matchExpressions:
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: Exists
     # -- Example: How to ship syslog (RFC 3164 / RFC 5424) to VictoriaLogs using Vector
     # To ingest syslog from external systems, configure a syslog source in Vector's customConfig
     # and route it to the VictoriaLogs vlinsert Elasticsearch bulk endpoint.
@@ -142,6 +476,25 @@ victoria-traces-cluster:
       storageClassName: openebs-hostpath
       size: 10Gi
     affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [vtstorage]
+          - weight: 50
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [monitoring]
+          - weight: 25
+            preference:
+              matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: Exists
       podAntiAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:
           - labelSelector:
@@ -152,6 +505,25 @@ victoria-traces-cluster:
   vtinsert:
     replicaCount: 2
     affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [vtinsert]
+          - weight: 50
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [monitoring]
+          - weight: 25
+            preference:
+              matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: Exists
       podAntiAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:
           - labelSelector:
@@ -162,9 +534,66 @@ victoria-traces-cluster:
   vtselect:
     replicaCount: 2
     affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [vtselect]
+          - weight: 50
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [monitoring]
+          - weight: 25
+            preference:
+              matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: Exists
       podAntiAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:
           - labelSelector:
               matchLabels:
                 app.kubernetes.io/name: vtselect
             topologyKey: kubernetes.io/hostname
+
+  vmauth:
+    affinity:
+      nodeAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [vmauth]
+          - weight: 50
+            preference:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [monitoring]
+          - weight: 25
+            preference:
+              matchExpressions:
+                - key: node-role.kubernetes.io/control-plane
+                  operator: Exists
+
+postDeleteCleanup:
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values: [monitoring]
+        - weight: 25
+          preference:
+            matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists

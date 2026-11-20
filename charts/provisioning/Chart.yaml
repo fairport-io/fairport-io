@@ -6,4 +6,4 @@ dependencies:
 - name: tinkerbell
   condition: tinkerbell.enabled
   repository: oci://ghcr.io/tinkerbell/charts
-  version: v0.23.0
+  version: v0.26.0

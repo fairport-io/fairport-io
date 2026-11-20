@@ -88,7 +88,7 @@ helmfile:
     namespace: monitoring
     createNamespace: true
     chart: oci://ghcr.io/fairport-io/charts/monitoring
-    version: 1.0.0
+    version: 1.0.1
     atomic: true
     wait: true
     needs: [ "cert-manager/cert-manager" ]
@@ -131,7 +131,7 @@ helmfile:
   # Job Scheduling #
   ##################
   - name: mpi-operator
-    installed: true
+    installed: false
     namespace: mpi-operator
     createNamespace: true
     chart: oci://ghcr.io/fairport-io/charts/mpi-operator
@@ -141,7 +141,7 @@ helmfile:
     needs: [ "cattle-system/rancher", "kyverno/kyverno" ]
     values: [ "helmfile-values.yaml.gotmpl" ]
   - name: slurm-operator
-    installed: true
+    installed: false
     namespace: slurm
     createNamespace: true
     chart: oci://ghcr.io/fairport-io/charts/slurm-operator
@@ -151,7 +151,7 @@ helmfile:
     needs: [ "cattle-system/rancher", "kyverno/kyverno" ]
     values: [ "helmfile-values.yaml.gotmpl" ]
   - name: kueue
-    installed: true
+    installed: false
     namespace: kueue-system
     createNamespace: true
     chart: oci://ghcr.io/fairport-io/charts/kueue
@@ -161,7 +161,7 @@ helmfile:
     needs: [ "slurm/slurm-operator" ]
     values: [ "helmfile-values.yaml.gotmpl" ]
   - name: slurm
-    installed: true
+    installed: false
     namespace: slurm
     createNamespace: true
     chart: oci://ghcr.io/fairport-io/charts/slurm
@@ -178,7 +178,7 @@ helmfile:
     namespace: provisioning
     createNamespace: true
     chart: oci://ghcr.io/fairport-io/charts/provisioning
-    version: 1.0.0
+    version: 1.0.1
     atomic: true
     wait: true
     needs: [ "slurm/slurm" ]
@@ -213,7 +213,7 @@ helmfile:
             value: '{{ env "CONTAINERD_SOCKET" | default "/run/containerd/containerd.sock" }}'
     - "helmfile-values.yaml.gotmpl"
   - name: amd-gpu-operator
-    installed: true
+    installed: false
     namespace: amd-gpu-operator
     createNamespace: true
     chart: oci://ghcr.io/fairport-io/charts/amd-gpu-operator
@@ -261,7 +261,7 @@ helmfile:
     needs: [ "openebs/openebs", "cert-manager/cert-manager", "kueue-system/kueue" ]
     values: [ "helmfile-values.yaml.gotmpl" ]
   - name: production-stack-operator
-    installed: true
+    installed: false
     namespace: production-stack-operator
     createNamespace: true
     chart: oci://ghcr.io/fairport-io/charts/production-stack-operator
