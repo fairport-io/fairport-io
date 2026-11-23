@@ -1,0 +1,17 @@
+{{- $operator := index .Values "nvidia-gpu-operator" }}
+{{- if and $operator.enabled $operator.gpuCluster.deployCR }}
+{{- if and (.Capabilities.APIVersions.Has "nvidia.com/v1/ClusterPolicy") (get (lookup "nvidia.com/v1" "ClusterPolicy" "" "") "items") }}
+{{- fail "GPUCluster requires a fresh NVIDIA GPU Operator installation. Use the ClusterPolicy values in the Fairport NVIDIA GPU Operator chart README when upgrading an existing ClusterPolicy installation." }}
+{{- end }}
+{{- if .Capabilities.APIVersions.Has "resource.k8s.io/v1/DeviceClass" }}
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: fairport-nvidia-gpu
+spec:
+  extendedResourceName: nvidia.com/gpu
+  selectors:
+    - cel:
+        expression: "device.driver == 'gpu.nvidia.com' && device.attributes['gpu.nvidia.com'].type == 'gpu'"
+{{- end }}
+{{- end }}

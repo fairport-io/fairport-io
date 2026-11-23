@@ -201,7 +201,9 @@ helmfile:
     namespace: gpu-operator
     createNamespace: true
     chart: oci://ghcr.io/fairport-io/charts/nvidia-gpu-operator
-    version: 26.3.1
+    version: 26.7.3
+    # The upstream pre-upgrade hook updates the CRDs after Helm's OpenAPI validation.
+    disableOpenAPIValidation: true
     atomic: true
     wait: true
     needs: [ "monitoring/monitoring", "provisioning/provisioning", "slurm/slurm" ]
