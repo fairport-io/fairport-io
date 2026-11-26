@@ -6,7 +6,7 @@ dependencies:
   - name: gpu-operator
     alias: nvidia-gpu-operator
     condition: nvidia-gpu-operator.enabled
-    version: v26.3.1
+    version: v26.7.3
     repository: https://helm.ngc.nvidia.com/nvidia
 annotations:
   publish-repository: oci://ghcr.io/fairport-io

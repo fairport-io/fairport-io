@@ -39,8 +39,24 @@ data:
     {{- with omit .Values.helmfile "releases" }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
+    {{- $releases := deepCopy .Values.helmfile.releases }}
+    {{- $clusterPolicyExists := and (.Capabilities.APIVersions.Has "nvidia.com/v1/ClusterPolicy") (get (lookup "nvidia.com/v1" "ClusterPolicy" "" "") "items") }}
+    {{- $supportsDRARequests := and (.Capabilities.APIVersions.Has "resource.k8s.io/v1/DeviceClass") (semverCompare ">=1.36.0-0" .Capabilities.KubeVersion.Version) }}
+    {{- /* v1/Node is present in live discovery. Offline renders use the wrapper defaults. */}}
+    {{- if or $clusterPolicyExists (and (.Capabilities.APIVersions.Has "v1/Node") (not $supportsDRARequests)) }}
+    {{- range $releases }}
+    {{- if eq .name "nvidia-gpu-operator" }}
+    {{- $clusterPolicy := dict "deployCR" true }}
+    {{- $gpuCluster := dict "deployCR" false }}
+    {{- $devicePlugin := dict "enabled" true }}
+    {{- $driver := dict "nvidiaDriverCRD" (dict "enabled" false) "manager" (dict "version" "v0.12.1") }}
+    {{- $legacy := dict "nvidia-gpu-operator" (dict "clusterPolicy" $clusterPolicy "gpuCluster" $gpuCluster "devicePlugin" $devicePlugin "driver" $driver) }}
+    {{- $_ := set . "values" (prepend (.values | default list) $legacy) }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
     releases:
-    {{ printf "{{- $helmfile := %q | fromYaml -}}" (dict "releases" .Values.helmfile.releases | toYaml) }}
+    {{ printf "{{- $helmfile := %q | fromYaml -}}" (dict "releases" $releases | toYaml) }}
     {{ `{{- $allValues := readFile "values.yaml" | fromYaml | default dict -}}` }}
     {{ `{{- $needsOf := dict -}}` }}
     {{ `{{- range $helmfile.releases -}}{{- if hasKey . "needs" -}}{{- $_ := set $needsOf .name .needs -}}{{- end -}}{{- end -}}` }}

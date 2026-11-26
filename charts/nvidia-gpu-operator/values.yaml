@@ -2,3 +2,18 @@
 # Container runtime socket is auto-detected by the installer
 nvidia-gpu-operator:
   enabled: true
+  clusterPolicy:
+    deployCR: false
+  gpuCluster:
+    deployCR: true
+  devicePlugin:
+    enabled: false
+  driver:
+    nvidiaDriverCRD:
+      enabled: true
+    manager:
+      # GPU Operator v26.7.3 requires this Driver Manager version for DRA.
+      version: v0.13.0
+  draDriver:
+    computeDomains:
+      enabled: false
